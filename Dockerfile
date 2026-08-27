@@ -1,26 +1,40 @@
-# Base image estable para ARMv7
-FROM node:20-bookworm-slim
-
-# Instalamos dependencias del sistema necesarias
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# Etapa 1: Construcción
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Copiamos archivos de dependencias
+# Instalar herramientas necesarias para Prisma
+RUN apt-get update && apt-get install -y openssl libssl-dev && rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
-# Copiamos la configuración de Sequelize
-COPY .sequelizerc ./
-# Copiamos las migraciones y config de sequelize (archivos .cjs)
-COPY src/migrations ./src/migrations/
-COPY src/config/sequelize-config.cjs ./src/config/
-# Copiamos el código compilado
-COPY dist ./dist/
+COPY prisma ./prisma/
 
-# Instalamos dependencias de producción
-RUN npm install --omit=dev
+RUN npm install
 
-# Exponemos el puerto de la API
+COPY . .
+
+# Generar el cliente de Prisma y compilar TypeScript
+RUN npx prisma generate
+RUN npm run build
+
+# Etapa 2: Producción
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+# Instalar runtime de OpenSSL necesario para Prisma
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules ./node_modules
+
+# Exponer el puerto
 EXPOSE 3000
 
-# Iniciamos el servidor (el comando 'start' ejecutará las migraciones automáticamente)
-CMD ["npm", "start"]
+# Variables de entorno por defecto (se pueden sobrescribir en docker-compose)
+ENV NODE_ENV=production
+
+# Ejecutar el servidor
+CMD ["node", "dist/server.js"]

@@ -2,40 +2,31 @@ version: '3.8'
 
 services:
   db:
-    image: tobi312/rpi-mariadb:10.11-alpine
+    image: postgres:16-alpine
     container_name: yape-db
     restart: always
     environment:
-      - MYSQL_ROOT_PASSWORD=password
-      - MYSQL_DATABASE=yape_transporte
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: yape_transporte
     ports:
-      - '3307:3306'
+      - '5432:5432'
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
 
-  backend:
-    image: node:20-bookworm-slim
+  app:
+    build: .
     container_name: yape-backend
     restart: always
     ports:
       - '3000:3000'
-    volumes:
-      - /share/Public/yape_transporte_backend:/app
-    working_dir: /app
-    # Ejecutamos node directamente para ahorrar RAM (npm consume mucho en QNAP)
-    command: node dist/src/server.js
     environment:
-      DATABASE_URL: "mysql://root:password@yape-db:3306/yape_transporte"
-      JWT_SECRET: "your_super_secret_key"
+      DATABASE_URL: "postgresql://postgres:password@db:5432/yape_transporte?schema=public"
+      JWT_SECRET: "ClaveSeguraParaProduccion_2025"
       PORT: 3000
+      NODE_ENV: production
     depends_on:
       - db
 
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflare-tunnel
-    restart: always
-    command: tunnel --no-autoupdate run --token eyJhIjoiOWMwOWRjMDYxZTU2NWFmOGMzMTM4OTQ2MTUxMzU5MmUiLCJ0IjoiMmZmMGE4NDUtYWRiOS00MjY1LTg4NzItNzk4ODJhMDM1ZTc0IiwicyI6Ik9HSm1OMkZrWkRRdE9ERmpNeTAwTmpNeUxXSTJabVl0TkdGalpUTmxPRFkxWkdZMCJ9
-
 volumes:
-  mysql_data:
+  postgres_data:
