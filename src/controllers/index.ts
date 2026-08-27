@@ -603,10 +603,17 @@ export class UserController {
 
   static async startTrial(req: FastifyRequest, reply: FastifyReply) {
     const userId = (req as any).user?.id;
-    logger.info(`Start trial request for user ID: ${userId}`);
+    logger.info(`>>> [DEBUG] Start trial request for user ID: ${userId}`);
     try {
       if (!userId) {
+        logger.warn('>>> [DEBUG] startTrial failed: No userId in request');
         return reply.status(401).send({ error: 'Usuario no autenticado.' });
+      }
+
+      // Verificar si el usuario ya tiene una prueba o suscripción
+      const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+      if (currentUser?.trialEndDate) {
+        logger.info(`>>> [DEBUG] User ${userId} already has a trial. Overwriting...`);
       }
 
       const user = await prisma.user.update({
@@ -617,7 +624,7 @@ export class UserController {
         }
       });
 
-      logger.info(`Trial started successfully for user: ${user.email}`);
+      logger.info(`>>> [DEBUG] Trial started successfully for user: ${user.email}`);
       return reply.send({
         id: user.id,
         name: user.name,
@@ -629,8 +636,8 @@ export class UserController {
         subscriptionEndDate: user.subscriptionEndDate,
       });
     } catch (error) {
-      logger.error('Error starting trial:', error);
-      return reply.status(404).send({ error: 'Usuario no encontrado para iniciar periodo de prueba.' });
+      logger.error('>>> [DEBUG] Error starting trial:', error);
+      return reply.status(500).send({ error: 'Error interno al activar el periodo de prueba.' });
     }
   }
 
