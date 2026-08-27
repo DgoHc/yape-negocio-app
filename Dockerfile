@@ -40,4 +40,4 @@ EXPOSE 3000
 ENV NODE_ENV=production
 
 # Ejecutar el servidor
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/src/server.js"]
