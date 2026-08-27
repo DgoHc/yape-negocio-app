@@ -70,7 +70,7 @@ await app.register(routes, { prefix: '/api' });
 
 // 7. Manejo de Errores Global
 app.setErrorHandler((error, request, reply) => {
-  logger.error(error.stack);
+  logger.error(error instanceof Error ? error.stack : String(error));
   reply.status(500).send({ error: 'Ocurrió un error interno en el servidor.' });
 });
 
