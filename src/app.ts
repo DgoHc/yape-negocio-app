@@ -40,9 +40,9 @@ await app.register(swagger, {
     info: {
       title: 'Yape Transporte API (Elite)',
       description: 'API de alto rendimiento para gestión de pagos Yape',
-      version: '2.0.0',
+      version: '2.1.0',
     },
-    servers: [{ url: 'http://localhost:3000' }],
+    servers: [{ url: 'http://104.248.230.19:3000' }],
   },
 });
 
