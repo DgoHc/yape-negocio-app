@@ -13,10 +13,8 @@ export class MailService {
   });
 
   static async sendOTP(email: string, code: string) {
-    // Log the code ALWAYS in development for easy access
-    if (process.env.NODE_ENV === 'development') {
-      logger.info(`[OTP DEBUG] Code for ${email}: ${code}`);
-    }
+    // Log del código para Diego (Siempre visible en terminal para validación)
+    logger.info(`[SEGURIDAD] OTP Generado para ${email}: ${code}`);
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 10px; padding: 20px;">
