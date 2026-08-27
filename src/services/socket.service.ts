@@ -1,6 +1,6 @@
 import { Server as SocketServer } from 'socket.io';
 import { Server as HttpServer } from 'http';
-import logger from '../utils/logger';
+import logger from '../utils/logger.js';
 
 export class SocketService {
   private static io: SocketServer;
@@ -13,7 +13,7 @@ export class SocketService {
       },
     });
 
-    this.io.on('connection', (socket) => {
+    this.io.on('connection', (socket: any) => {
       logger.info(`New client connected: ${socket.id}`);
 
       socket.on('join', (deviceId: string) => {

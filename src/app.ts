@@ -1,60 +1,77 @@
-import express from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
-import rateLimit from 'express-rate-limit';
-import swaggerUi from 'swagger-ui-express';
-import swaggerJsdoc from 'swagger-jsdoc';
-import routes from './routes';
-import logger from './utils/logger';
+import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
+import jwt from '@fastify/jwt';
+import logger from './utils/logger.js';
+import routes from './routes/index.js';
+import { getJwtSecret } from './middlewares/auth.js';
 
-const app = express();
-
-// Middlewares
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-
-// Request logging middleware
-app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.url}`);
-  next();
+const app: FastifyInstance = Fastify({
+  logger: false, // Usamos nuestro propio logger (Winston)
 });
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later',
+// 1. Registro de Seguridad y CORS
+await app.register(helmet, {
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
 });
-app.use(limiter);
 
-// Swagger configuration
-const swaggerOptions = {
-  definition: {
-    openapi: '3.0.0',
+await app.register(cors, {
+  origin: '*',
+});
+
+// 2. Limitación de peticiones
+await app.register(rateLimit, {
+  max: 100,
+  timeWindow: '1 minute',
+});
+
+// 3. Autenticación JWT
+await app.register(jwt, {
+  secret: getJwtSecret(),
+});
+
+// 4. Configuración de Swagger (Documentación)
+await app.register(swagger, {
+  openapi: {
     info: {
-      title: 'Yape Transporte API',
-      version: '1.0.0',
-      description: 'API for Yape Transporte backend',
+      title: 'Yape Transporte API (Elite)',
+      description: 'API de alto rendimiento para gestión de pagos Yape',
+      version: '2.0.0',
     },
-    servers: [
-      {
-        url: 'http://localhost:3000/api',
-      },
-    ],
+    servers: [{ url: 'http://localhost:3000' }],
   },
-  apis: ['./src/routes/*.ts'], // Path to the API docs
-};
-const swaggerSpec = swaggerJsdoc(swaggerOptions);
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+});
 
-// Routes
-app.use('/api', routes);
+await app.register(swaggerUi, {
+  routePrefix: '/docs',
+});
 
-// Error handling middleware
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  logger.error(err.stack);
-  res.status(500).send('Something broke!');
+// 5. Logging de peticiones
+app.addHook('onRequest', async (request, reply) => {
+  logger.info(`${request.method} ${request.url}`);
+});
+
+// Ruta raíz para verificación
+app.get('/', async () => {
+  return {
+    name: 'Yape Transporte API',
+    version: '2.0.0',
+    status: 'online',
+    docs: '/docs'
+  };
+});
+
+// 6. Registro de Rutas (Plugins)
+await app.register(routes, { prefix: '/api' });
+
+// 7. Manejo de Errores Global
+app.setErrorHandler((error, request, reply) => {
+  logger.error(error.stack);
+  reply.status(500).send({ error: 'Ocurrió un error interno en el servidor.' });
 });
 
 export default app;

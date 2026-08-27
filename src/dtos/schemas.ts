@@ -20,7 +20,7 @@ export const paymentSchema = z.object({
     currency: z.string().default('S/'),
     senderName: z.string().min(1),
     rawText: z.string().optional(),
-    deviceId: z.string().uuid(),
+    deviceId: z.string().min(1),
   }),
 });
 

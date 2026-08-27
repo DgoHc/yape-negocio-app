@@ -1,18 +1,24 @@
-import http from 'http';
-import app from './app';
-import { SocketService } from './services/socket.service';
-import logger from './utils/logger';
-import dotenv from 'dotenv';
+import 'dotenv/config';
+import app from './app.js';
+import { SocketService } from './services/socket.service.js';
+import logger from './utils/logger.js';
 
-dotenv.config();
+const port = Number(process.env.PORT) || 3000;
 
-const port = process.env.PORT || 3000;
-const server = http.createServer(app);
+const start = async () => {
+  try {
+    // 1. Iniciar servidor Fastify
+    await app.listen({ port, host: '0.0.0.0' });
 
-// Initialize Socket.io
-SocketService.init(server);
+    // 2. Inicializar Socket.io usando el servidor interno de Fastify
+    SocketService.init(app.server);
 
-server.listen(port, () => {
-  logger.info(`Server is running on port ${port}`);
-  logger.info(`Swagger docs available at http://localhost:${port}/docs`);
-});
+    logger.info(`🚀 Servidor ELITE corriendo en http://localhost:${port}`);
+    logger.info(`📜 Documentación Swagger en http://localhost:${port}/docs`);
+  } catch (err) {
+    logger.error('Error al arrancar el servidor:', err);
+    process.exit(1);
+  }
+};
+
+start();

@@ -1,11 +1,10 @@
-import { Request, Response } from 'express';
-import prisma from '../config/database';
-import { SocketService } from '../services/socket.service';
-import { MailService } from '../services/mail.service';
-import logger from '../utils/logger';
-import jwt from 'jsonwebtoken';
+import { FastifyRequest, FastifyReply } from 'fastify';
+import prisma from '../config/database.js';
+import { SocketService } from '../services/socket.service.js';
+import { MailService } from '../services/mail.service.js';
+import logger from '../utils/logger.js';
 import crypto from 'crypto';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import axios from 'axios';
 import { MercadoPagoConfig, Preference } from 'mercadopago';
 
@@ -15,16 +14,17 @@ function generateOTP(): string {
 }
 
 function generateNotificationCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Avoid confusing chars like O, 0, I, 1
-  let result = '';
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const prefix = chars[Math.floor(Math.random() * 26)] + chars[Math.floor(Math.random() * 26)] + chars[Math.floor(Math.random() * 26)];
+  let code = '';
   for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += chars[Math.floor(Math.random() * 36)];
   }
-  return result;
+  return `${prefix}-${code}`;
 }
 
 export class DeviceController {
-  static async register(req: Request, res: Response) {
+  static async register(req: FastifyRequest, reply: FastifyReply) {
     const {
       uuid,
       phoneNumber,
@@ -34,7 +34,7 @@ export class DeviceController {
       model,
       androidVersion,
       pushToken
-    } = req.body;
+    } = req.body as any;
     const userId = (req as any).user?.id;
 
     try {
@@ -53,6 +53,8 @@ export class DeviceController {
         },
         create: {
           uuid,
+          lastConnectedAt: new Date(),
+          userId: userId || undefined,
           phoneNumber,
           alias,
           deviceName,
@@ -60,62 +62,61 @@ export class DeviceController {
           model,
           androidVersion,
           pushToken,
-          userId: userId || undefined,
         },
       });
-      res.status(201).json(device);
+      return reply.status(201).send(device);
     } catch (error) {
       logger.error('Error registering device:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo registrar el dispositivo. Inténtalo de nuevo.' });
     }
   }
 
-  static async getDevices(req: Request, res: Response) {
+  static async getDevices(req: FastifyRequest, reply: FastifyReply) {
     try {
       const devices = await prisma.device.findMany({
         orderBy: { createdAt: 'desc' },
       });
-      res.json(devices);
+      return reply.send(devices);
     } catch (error) {
       logger.error('Error getting devices:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudieron obtener los dispositivos.' });
     }
   }
 
-  static async adminRegisterDevice(req: Request, res: Response) {
-    const { uuid, alias, phoneNumber } = req.body;
+  static async adminRegisterDevice(req: FastifyRequest, reply: FastifyReply) {
+    const { uuid, alias, phoneNumber } = req.body as any;
     try {
       const device = await prisma.device.upsert({
         where: { uuid },
-        update: { 
-          alias, 
-          phoneNumber, 
+        update: {
+          alias,
+          phoneNumber,
           isApproved: true,
           status: 'ACTIVE'
         },
-        create: { 
-          uuid, 
-          alias, 
-          phoneNumber, 
+        create: {
+          uuid,
+          alias,
+          phoneNumber,
           isApproved: true,
           status: 'ACTIVE'
-        },
+        }
       });
-      res.status(201).json(device);
+      return reply.status(201).send(device);
     } catch (error) {
       logger.error('Error admin registering device:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al registrar el dispositivo por el administrador.' });
     }
   }
 
-  static async getStatus(req: Request, res: Response) {
-    const { uuid } = req.params;
+  static async getStatus(req: FastifyRequest, reply: FastifyReply) {
+    const { uuid } = req.params as { uuid: string };
     try {
       const device = await prisma.device.findUnique({
-        where: { uuid: uuid as string },
+        where: { uuid },
       });
-      if (!device) return res.status(404).json({ error: 'Device not found' });
-      res.json({ 
+      if (!device) return reply.status(404).send({ error: 'Dispositivo no encontrado en el sistema.' });
+      return reply.send({
         isApproved: device.isApproved,
         status: device.status,
         alias: device.alias,
@@ -123,172 +124,216 @@ export class DeviceController {
       });
     } catch (error) {
       logger.error('Error getting device status:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo verificar el estado del dispositivo.' });
     }
   }
 
-  static async unapprove(req: Request, res: Response) {
-    const { uuid } = req.body;
+  static async unapprove(req: FastifyRequest, reply: FastifyReply) {
+    const { uuid } = req.body as { uuid: string };
     try {
       const device = await prisma.device.update({
-        where: { uuid: uuid as string },
-        data: { isApproved: false },
+        where: { uuid },
+        data: { isApproved: false }
       });
-      res.json({ message: 'Device unapproved successfully', device });
+      return reply.send({ message: 'Dispositivo desaprobado correctamente.' });
     } catch (error) {
       logger.error('Error unapproving device:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(404).send({ error: 'Dispositivo no encontrado para desaprobar.' });
     }
   }
 
-  static async updateDevice(req: Request, res: Response) {
-    const { id } = req.params;
-    const { isApproved, alias, status } = req.body;
+  static async updateDevice(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = req.params as { id: string };
+    const { isApproved, alias, status } = req.body as any;
     logger.info(`Updating device ${id} with:`, { isApproved, alias, status });
     try {
       const device = await prisma.device.update({
-        where: { id: id as string },
-        data: { 
+        where: { id },
+        data: {
           isApproved: isApproved !== undefined ? isApproved : undefined,
           alias: alias !== undefined ? alias : undefined,
           status: status !== undefined ? status : undefined,
-        },
+        }
       });
       logger.info(`Device ${id} updated successfully`);
-      res.json(device);
+      return reply.send(device);
     } catch (error) {
       logger.error('Error updating device:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(404).send({ error: 'Dispositivo no encontrado para actualizar.' });
     }
   }
 
-  static async deleteDevice(req: Request, res: Response) {
-    const { id } = req.params;
+  static async deleteDevice(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = req.params as { id: string };
     try {
-      await prisma.device.delete({ where: { id: id as string } });
-      res.status(204).send();
+      await prisma.device.delete({ where: { id } });
+      return reply.status(204).send();
     } catch (error) {
       logger.error('Error deleting device:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(404).send({ error: 'Dispositivo no encontrado para eliminar.' });
     }
   }
 }
 
 export class PaymentController {
-  static async create(req: Request, res: Response) {
-    const { externalId, amount, currency, senderName, rawText, deviceId } = req.body;
+  static async create(req: FastifyRequest, reply: FastifyReply) {
+    const { externalId, deviceId, amount, currency, senderName, rawText, operationNumber } = req.body as any;
     try {
+      let device = await prisma.device.findUnique({ where: { id: deviceId } });
+      if (!device) {
+        device = await prisma.device.findUnique({ where: { uuid: deviceId } });
+      }
+
+      if (!device) {
+        return reply.status(404).send({ error: 'Dispositivo no registrado en el sistema.' });
+      }
+
       const payment = await prisma.payment.create({
-        data: { externalId, amount, currency, senderName, rawText, deviceId },
+        data: {
+          externalId,
+          amount,
+          currency,
+          senderName,
+          rawText,
+          deviceId: device.id,
+          operationNumber,
+          userId: device.userId
+        }
       });
-      
-      SocketService.emitPaymentReceived(deviceId, payment);
-      
-      res.status(201).json(payment);
+
+      SocketService.emitPaymentReceived(device.id, payment);
+      if (deviceId !== device.id) {
+        SocketService.emitPaymentReceived(deviceId, payment);
+      }
+
+      return reply.status(201).send(payment);
     } catch (error) {
       logger.error('Error creating payment:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo registrar el pago. Inténtalo de nuevo.' });
     }
   }
 
-  static async getPayments(req: Request, res: Response) {
-    const { deviceId } = req.query;
+  static async getPayments(req: FastifyRequest, reply: FastifyReply) {
+    const { deviceId } = req.query as { deviceId?: string };
+    const userId = (req as any).user?.id;
+
     try {
       const payments = await prisma.payment.findMany({
-        where: deviceId ? { deviceId: deviceId as string } : {},
+        where: {
+          userId,
+          deviceId: deviceId || undefined
+        },
         orderBy: { createdAt: 'desc' },
       });
-      res.json(payments);
+      return reply.send(payments);
     } catch (error) {
       logger.error('Error getting payments:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al obtener la lista de pagos.' });
     }
   }
 }
 
 export class AdminController {
-  static async login(req: Request, res: Response) {
-    const { username, pin } = req.body;
+  static async login(req: FastifyRequest, reply: FastifyReply) {
+    const { username, pin } = req.body as any;
     try {
       const admin = await prisma.adminUser.findUnique({ where: { username } });
-      if (!admin) return res.status(401).json({ error: 'Invalid credentials' });
+      if (!admin) return reply.status(401).send({ error: 'Invalid credentials' });
       
       if (admin.status === 'SUSPENDED') {
-        return res.status(403).json({ error: 'Account suspended' });
+        return reply.status(403).send({ error: 'Account suspended' });
       }
 
-      const pinHash = crypto.createHash('sha256').update(pin).digest('hex');
-      if (pinHash !== admin.pinHash) {
-        return res.status(401).json({ error: 'Invalid credentials' });
+      const storedHash = admin.pinHash;
+      let isPinValid = false;
+
+      if (storedHash.includes(':')) {
+        const [hashed, salt] = storedHash.split(':');
+        const inputHash = crypto.createHash('sha256').update(pin + salt).digest('hex');
+        isPinValid = (inputHash === hashed);
+      } else {
+        const inputHash = crypto.createHash('sha256').update(pin).digest('hex');
+        isPinValid = (inputHash === storedHash);
       }
 
-      const token = jwt.sign(
+      if (!isPinValid) {
+        return reply.status(401).send({ error: 'Invalid credentials' });
+      }
+
+      const token = (req.server as any).jwt.sign(
         { id: admin.id, username: admin.username, role: admin.role },
-        process.env.JWT_SECRET || 'secret',
         { expiresIn: '24h' }
       );
 
-      res.json({ token, role: admin.role });
+      return reply.send({ token, role: admin.role });
     } catch (error) {
       logger.error('Error in admin login:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Ocurrió un error inesperado durante el inicio de sesión.' });
     }
   }
 
-  static async getUsers(req: Request, res: Response) {
+  static async getUsers(req: FastifyRequest, reply: FastifyReply) {
     try {
       const users = await prisma.adminUser.findMany({
-        select: { id: true, username: true, role: true, status: true, createdAt: true },
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          status: true,
+          createdAt: true
+        },
         orderBy: { createdAt: 'desc' },
       });
-      res.json(users);
+      return reply.send(users);
     } catch (error) {
       logger.error('Error getting admin users:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo cargar la lista de administradores.' });
     }
   }
 
-  static async createUser(req: Request, res: Response) {
-    const { username, pin, role } = req.body;
+  static async createUser(req: FastifyRequest, reply: FastifyReply) {
+    const { username, pin, role } = req.body as any;
     try {
-      const pinHash = crypto.createHash('sha256').update(pin).digest('hex');
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hashed = crypto.createHash('sha256').update(pin + salt).digest('hex');
+      const pinHash = `${hashed}:${salt}`;
       const user = await prisma.adminUser.create({
-        data: { username, pinHash, role },
+        data: { username, pinHash, role }
       });
-      res.status(201).json({ id: user.id, username: user.username, role: user.role });
+      return reply.status(201).send({ id: user.id, username: user.username, role: user.role });
     } catch (error) {
       logger.error('Error creating admin user:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo crear el usuario administrador. ¿El nombre de usuario ya existe?' });
     }
   }
 
-  static async updateUser(req: Request, res: Response) {
-    const { id } = req.params;
-    const { role, status } = req.body;
+  static async updateUser(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = req.params as { id: string };
+    const { role, status } = req.body as any;
     try {
       const user = await prisma.adminUser.update({
-        where: { id: id as string },
-        data: { role, status },
+        where: { id },
+        data: { role, status }
       });
-      res.json({ id: user.id, username: user.username, role: user.role, status: user.status });
+      return reply.send({ id: user.id, username: user.username, role: user.role, status: user.status });
     } catch (error) {
       logger.error('Error updating admin user:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(404).send({ error: 'Administrador no encontrado para actualizar.' });
     }
   }
 
-  static async deleteUser(req: Request, res: Response) {
-    const { id } = req.params;
+  static async deleteUser(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = req.params as { id: string };
     try {
-      await prisma.adminUser.delete({ where: { id: id as string } });
-      res.status(204).send();
+      await prisma.adminUser.delete({ where: { id } });
+      return reply.status(204).send();
     } catch (error) {
       logger.error('Error deleting admin user:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(404).send({ error: 'No se pudo eliminar el administrador.' });
     }
   }
 
-  static async getAppUsers(req: Request, res: Response) {
+  static async getAppUsers(req: FastifyRequest, reply: FastifyReply) {
     try {
       const users = await prisma.user.findMany({
         select: {
@@ -300,20 +345,20 @@ export class AdminController {
           isSubscribed: true,
           trialEndDate: true,
           subscriptionEndDate: true,
-          createdAt: true,
+          createdAt: true
         },
         orderBy: { createdAt: 'desc' },
       });
-      res.json(users);
+      return reply.send(users);
     } catch (error) {
       logger.error('Error getting app users:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al obtener los usuarios de la aplicación.' });
     }
   }
 
-  static async updateAppUserSubscription(req: Request, res: Response) {
-    const { id } = req.params;
-    const { isSubscribed } = req.body;
+  static async updateAppUserSubscription(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = req.params as { id: string };
+    const { isSubscribed } = req.body as { isSubscribed: boolean };
     try {
       const user = await prisma.user.update({
         where: { id },
@@ -321,44 +366,31 @@ export class AdminController {
           isSubscribed,
           subscriptionStartDate: isSubscribed ? new Date() : undefined,
           subscriptionEndDate: isSubscribed ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : undefined
-        },
+        }
       });
-      res.json(user);
+      return reply.send(user);
     } catch (error) {
       logger.error('Error updating app user subscription:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(404).send({ error: 'Usuario no encontrado para gestionar suscripción.' });
     }
   }
 }
 
-// Helper to generate unique notification codes (like NBX-7K4D91)
-function generateNotificationCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const prefix = chars[Math.floor(Math.random() * 26)] + chars[Math.floor(Math.random() * 26)] + chars[Math.floor(Math.random() * 26)];
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * 36)];
-  }
-  return `${prefix}-${code}`;
-}
-
 export class UserController {
-  static async register(req: Request, res: Response) {
-    const { name, email, password, phone, businessType } = req.body;
+  static async register(req: FastifyRequest, reply: FastifyReply) {
+    const { name, email, password, phone, businessType } = req.body as any;
     try {
       const existingUser = await prisma.user.findUnique({ where: { email } });
 
       if (existingUser) {
         if (existingUser.isVerified) {
-          return res.status(400).json({ error: 'El usuario ya existe y está verificado.' });
+          return reply.status(400).send({ error: 'El usuario ya existe y está verificado.' });
         }
-        // If user exists but is not verified, we allow "re-registering" (updating data and sending new OTP)
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      // Generate notification code if new user
-      let notificationCode = existingUser?.notificationCode;
+      let notificationCode = existingUser?.notificationCode || '';
       if (!notificationCode) {
         let codeExists = true;
         while (codeExists) {
@@ -378,19 +410,18 @@ export class UserController {
           isVerified: false,
         },
         create: {
-          name, 
-          email, 
-          password: hashedPassword, 
-          phone, 
-          businessType, 
+          name,
+          email,
+          password: hashedPassword,
+          phone,
+          businessType,
           notificationCode,
           isVerified: false
         },
       });
 
-      // Handle OTP
       const code = generateOTP();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await prisma.verificationCode.create({
         data: {
@@ -402,19 +433,19 @@ export class UserController {
 
       await MailService.sendOTP(email, code);
 
-      res.status(201).json({
+      return reply.status(201).send({
         message: 'Registro exitoso. Por favor verifica tu correo electrónico.',
         email: user.email,
         requiresVerification: true
       });
     } catch (error) {
       logger.error('Error registering user:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Ocurrió un error al registrar el usuario. Inténtalo de nuevo.' });
     }
   }
 
-  static async verifyEmail(req: Request, res: Response) {
-    const { email, code } = req.body;
+  static async verifyEmail(req: FastifyRequest, reply: FastifyReply) {
+    const { email, code } = req.body as any;
     try {
       const verification = await prisma.verificationCode.findFirst({
         where: { email, code },
@@ -422,33 +453,30 @@ export class UserController {
       });
 
       if (!verification) {
-        return res.status(400).json({ error: 'Código de verificación inválido.' });
+        return reply.status(400).send({ error: 'El código de verificación es incorrecto.' });
       }
 
       if (verification.expiresAt < new Date()) {
-        return res.status(400).json({ error: 'El código ha expirado.' });
+        return reply.status(400).send({ error: 'Este código de verificación ha expirado.' });
       }
 
       if (verification.attempts >= 3) {
-        return res.status(400).json({ error: 'Demasiados intentos fallidos. Solicita un nuevo código.' });
+        return reply.status(400).send({ error: 'Has superado el número de intentos. Solicita un nuevo código.' });
       }
 
-      // Update user as verified
       const user = await prisma.user.update({
         where: { email },
         data: { isVerified: true }
       });
 
-      // Cleanup codes
       await prisma.verificationCode.deleteMany({ where: { email } });
 
-      const token = jwt.sign(
+      const token = (req.server as any).jwt.sign(
         { id: user.id, email: user.email },
-        process.env.JWT_SECRET || 'secret',
         { expiresIn: '30d' }
       );
 
-      res.json({
+      return reply.send({
         id: user.id,
         name: user.name,
         email: user.email,
@@ -462,58 +490,56 @@ export class UserController {
       });
     } catch (error) {
       logger.error('Error verifying email:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al verificar el correo electrónico.' });
     }
   }
 
-  static async resendOTP(req: Request, res: Response) {
-    const { email } = req.body;
+  static async resendOTP(req: FastifyRequest, reply: FastifyReply) {
+    const { email } = req.body as { email: string };
     try {
       const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
-      if (user.isVerified) return res.status(400).json({ error: 'El correo ya está verificado.' });
+      if (!user) return reply.status(404).send({ error: 'El correo ingresado no está registrado.' });
+      if (user.isVerified) return reply.status(400).send({ error: 'Este correo electrónico ya ha sido verificado.' });
 
-      // Generate new OTP
       const code = generateOTP();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await prisma.verificationCode.create({
-        data: { email, code, expiresAt },
+        data: { email, code, expiresAt }
       });
 
       await MailService.sendOTP(email, code);
 
-      res.json({ message: 'Nuevo código enviado.' });
+      return reply.send({ message: 'Se ha enviado un nuevo código de verificación a tu correo.' });
     } catch (error) {
       logger.error('Error resending OTP:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo reenviar el código. Inténtalo más tarde.' });
     }
   }
 
-  static async login(req: Request, res: Response) {
-    const { email, password } = req.body;
+  static async login(req: FastifyRequest, reply: FastifyReply) {
+    const { email, password } = req.body as any;
     try {
       const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) return res.status(401).json({ error: 'Credenciales inválidas' });
+      if (!user) return reply.status(401).send({ error: 'Credenciales inválidas o usuario no registrado.' });
 
       if (!user.isVerified) {
-        return res.status(403).json({
-          error: 'Correo no verificado',
+        return reply.status(403).send({
+          error: 'Tu cuenta aún no ha sido verificada.',
           requiresVerification: true,
           email: user.email
         });
       }
 
       const isPasswordValid = await bcrypt.compare(password, user.password);
-      if (!isPasswordValid) return res.status(401).json({ error: 'Credenciales inválidas' });
+      if (!isPasswordValid) return reply.status(401).send({ error: 'Contraseña incorrecta. Inténtalo de nuevo.' });
 
-      const token = jwt.sign(
+      const token = (req.server as any).jwt.sign(
         { id: user.id, email: user.email },
-        process.env.JWT_SECRET || 'secret',
         { expiresIn: '30d' }
       );
 
-      res.json({
+      return reply.send({
         id: user.id,
         name: user.name,
         email: user.email,
@@ -526,36 +552,38 @@ export class UserController {
       });
     } catch (error) {
       logger.error('Error logging in user:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Ocurrió un error al intentar iniciar sesión.' });
     }
   }
 
-  static async googleLogin(req: Request, res: Response) {
-    const { email, name, googleId } = req.body;
+  static async googleLogin(req: FastifyRequest, reply: FastifyReply) {
+    const { email, name, googleId } = req.body as any;
+    logger.info(`Google login request for: ${email}`);
     try {
       let user = await prisma.user.findUnique({ where: { email } });
 
       if (!user) {
-        // Create new user for Google if not exists
+        logger.info(`Creating new user via Google: ${email}`);
         const notificationCode = generateNotificationCode();
         user = await prisma.user.create({
           data: {
             email,
             name,
             password: await bcrypt.hash(`GOOGLE_SIGN_IN_${googleId}`, 10),
-            isVerified: true, // Google accounts are trusted/verified
+            isVerified: true,
             notificationCode,
           }
         });
+      } else {
+        logger.info(`Existing user logged in via Google: ${email}`);
       }
 
-      const token = jwt.sign(
+      const token = (req.server as any).jwt.sign(
         { id: user.id, email: user.email },
-        process.env.JWT_SECRET || 'secret',
         { expiresIn: '30d' }
       );
 
-      res.json({
+      return reply.send({
         id: user.id,
         name: user.name,
         email: user.email,
@@ -569,21 +597,28 @@ export class UserController {
       });
     } catch (error) {
       logger.error('Error in google login:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al iniciar sesión con Google.' });
     }
   }
 
-  static async startTrial(req: Request, res: Response) {
+  static async startTrial(req: FastifyRequest, reply: FastifyReply) {
+    const userId = (req as any).user?.id;
+    logger.info(`Start trial request for user ID: ${userId}`);
     try {
+      if (!userId) {
+        return reply.status(401).send({ error: 'Usuario no autenticado.' });
+      }
+
       const user = await prisma.user.update({
-        where: { id: (req as any).user.id },
+        where: { id: userId },
         data: {
           trialStartDate: new Date(),
-          trialEndDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
-        },
+          trialEndDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        }
       });
 
-      res.json({
+      logger.info(`Trial started successfully for user: ${user.email}`);
+      return reply.send({
         id: user.id,
         name: user.name,
         email: user.email,
@@ -595,11 +630,11 @@ export class UserController {
       });
     } catch (error) {
       logger.error('Error starting trial:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(404).send({ error: 'Usuario no encontrado para iniciar periodo de prueba.' });
     }
   }
 
-  static async getProfile(req: Request, res: Response) {
+  static async getProfile(req: FastifyRequest, reply: FastifyReply) {
     try {
       let user = await prisma.user.findUnique({
         where: { id: (req as any).user.id },
@@ -612,13 +647,12 @@ export class UserController {
           notificationCode: true,
           isSubscribed: true,
           trialEndDate: true,
-          subscriptionEndDate: true,
-        },
+          subscriptionEndDate: true
+        }
       });
 
-      // Generate notification code if it doesn't exist
       if (user && !user.notificationCode) {
-        let notificationCode: string;
+        let notificationCode = '';
         let codeExists = true;
         while (codeExists) {
           notificationCode = generateNotificationCode();
@@ -637,21 +671,21 @@ export class UserController {
             notificationCode: true,
             isSubscribed: true,
             trialEndDate: true,
-            subscriptionEndDate: true,
+            subscriptionEndDate: true
           }
         });
       }
       
-      if (!user) return res.status(404).json({ error: 'User not found' });
-      res.json(user);
+      if (!user) return reply.status(404).send({ error: 'Perfil de usuario no encontrado.' });
+      return reply.send(user);
     } catch (error) {
       logger.error('Error getting user profile:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al cargar los datos del perfil.' });
     }
   }
 
-  static async updateProfile(req: Request, res: Response) {
-    const { name, phone, businessType } = req.body;
+  static async updateProfile(req: FastifyRequest, reply: FastifyReply) {
+    const { name, phone, businessType } = req.body as any;
     try {
       const user = await prisma.user.update({
         where: { id: (req as any).user.id },
@@ -669,32 +703,31 @@ export class UserController {
           notificationCode: true,
           isSubscribed: true,
           trialEndDate: true,
-          subscriptionEndDate: true,
-        },
+          subscriptionEndDate: true
+        }
       });
 
-      res.json(user);
+      return reply.send(user);
     } catch (error) {
       logger.error('Error updating user profile:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo actualizar la información del perfil.' });
     }
   }
 }
 
 export class NotificationController {
-  static async getMyNotificationCode(req: Request, res: Response) {
+  static async getMyNotificationCode(req: FastifyRequest, reply: FastifyReply) {
     try {
       const userId = (req as any).user.id;
-      const user = await prisma.user.findUnique({
+      let user = await prisma.user.findUnique({
         where: { id: userId },
         select: { notificationCode: true }
       });
       
       if (!user) {
-        return res.status(404).json({ error: 'User not found' });
+        return reply.status(404).send({ error: 'Usuario no encontrado.' });
       }
 
-      // Generate notification code if it doesn't exist (for existing users)
       let notificationCode = user.notificationCode;
       if (!notificationCode) {
         let codeExists = true;
@@ -709,47 +742,46 @@ export class NotificationController {
         });
       }
 
-      res.json({ notificationCode });
+      return reply.send({ notificationCode });
     } catch (error) {
       logger.error('Error getting notification code:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al obtener tu código de vinculación.' });
     }
   }
 
-  static async findUserByCode(req: Request, res: Response) {
+  static async findUserByCode(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { code } = req.params;
+      const { code } = req.params as { code: string };
       const user = await prisma.user.findUnique({
         where: { notificationCode: code },
         select: { id: true, name: true, email: true }
       });
       if (!user) {
-        return res.status(404).json({ error: 'User not found' });
+        return reply.status(404).send({ error: 'No se encontró ningún usuario con ese código.' });
       }
-      res.json(user);
+      return reply.send(user);
     } catch (error) {
       logger.error('Error finding user by code:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al buscar el usuario por código.' });
     }
   }
 
-  static async sendLinkRequest(req: Request, res: Response) {
+  static async sendLinkRequest(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { code } = req.body;
+      const { code } = req.body as { code: string };
       const senderId = (req as any).user.id;
 
       const receiver = await prisma.user.findUnique({
         where: { notificationCode: code }
       });
       if (!receiver) {
-        return res.status(404).json({ error: 'User not found' });
+        return reply.status(404).send({ error: 'El usuario al que intentas vincularte no existe.' });
       }
 
       if (receiver.id === senderId) {
-        return res.status(400).json({ error: 'Cannot link to yourself' });
+        return reply.status(400).send({ error: 'No puedes enviarte una solicitud a ti mismo.' });
       }
 
-      // Check if already linked or request exists
       const existingLink = await prisma.userLink.findFirst({
         where: {
           OR: [
@@ -759,7 +791,7 @@ export class NotificationController {
         }
       });
       if (existingLink) {
-        return res.status(400).json({ error: 'Already linked' });
+        return reply.status(400).send({ error: 'Ya estás vinculado con este usuario.' });
       }
 
       const existingRequest = await prisma.linkRequest.findFirst({
@@ -771,41 +803,43 @@ export class NotificationController {
         }
       });
       if (existingRequest) {
-        return res.status(400).json({ error: 'Link request already exists' });
+        return reply.status(400).send({ error: 'Ya existe una solicitud de vinculación pendiente.' });
       }
 
       const request = await prisma.linkRequest.create({
         data: { senderId, receiverId: receiver.id }
       });
 
-      res.status(201).json(request);
+      return reply.status(201).send(request);
     } catch (error) {
       logger.error('Error sending link request:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo enviar la solicitud de vinculación.' });
     }
   }
 
-  static async getLinkRequests(req: Request, res: Response) {
+  static async getLinkRequests(req: FastifyRequest, reply: FastifyReply) {
     try {
       const userId = (req as any).user.id;
       const requests = await prisma.linkRequest.findMany({
-        where: { OR: [{ senderId: userId }, { receiverId: userId }] },
+        where: {
+          OR: [{ senderId: userId }, { receiverId: userId }]
+        },
         include: {
           sender: { select: { id: true, name: true, email: true } },
           receiver: { select: { id: true, name: true, email: true } }
         },
         orderBy: { createdAt: 'desc' }
       });
-      res.json(requests);
+      return reply.send(requests);
     } catch (error) {
       logger.error('Error getting link requests:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al cargar las solicitudes de vinculación.' });
     }
   }
 
-  static async acceptLinkRequest(req: Request, res: Response) {
+  static async acceptLinkRequest(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { requestId } = req.params;
+      const { requestId } = req.params as { requestId: string };
       const userId = (req as any).user.id;
 
       const request = await prisma.linkRequest.findUnique({
@@ -813,11 +847,11 @@ export class NotificationController {
       });
 
       if (!request || request.receiverId !== userId) {
-        return res.status(404).json({ error: 'Request not found' });
+        return reply.status(404).send({ error: 'La solicitud de vinculación no existe o no te pertenece.' });
       }
 
       if (request.status !== 'PENDING') {
-        return res.status(400).json({ error: 'Request already processed' });
+        return reply.status(400).send({ error: 'Esta solicitud ya ha sido procesada.' });
       }
 
       await prisma.$transaction([
@@ -833,16 +867,16 @@ export class NotificationController {
         })
       ]);
 
-      res.json({ message: 'Request accepted' });
+      return reply.send({ message: 'Solicitud de vinculación aceptada.' });
     } catch (error) {
       logger.error('Error accepting link request:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al aceptar la solicitud de vinculación.' });
     }
   }
 
-  static async rejectLinkRequest(req: Request, res: Response) {
+  static async rejectLinkRequest(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { requestId } = req.params;
+      const { requestId } = req.params as { requestId: string };
       const userId = (req as any).user.id;
 
       const request = await prisma.linkRequest.findUnique({
@@ -850,11 +884,11 @@ export class NotificationController {
       });
 
       if (!request || request.receiverId !== userId) {
-        return res.status(404).json({ error: 'Request not found' });
+        return reply.status(404).send({ error: 'La solicitud no existe o no te pertenece.' });
       }
 
       if (request.status !== 'PENDING') {
-        return res.status(400).json({ error: 'Request already processed' });
+        return reply.status(400).send({ error: 'Esta solicitud ya ha sido procesada.' });
       }
 
       await prisma.linkRequest.update({
@@ -862,14 +896,14 @@ export class NotificationController {
         data: { status: 'REJECTED' }
       });
 
-      res.json({ message: 'Request rejected' });
+      return reply.send({ message: 'Solicitud de vinculación rechazada.' });
     } catch (error) {
       logger.error('Error rejecting link request:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al rechazar la solicitud de vinculación.' });
     }
   }
 
-  static async getLinkedUsers(req: Request, res: Response) {
+  static async getLinkedUsers(req: FastifyRequest, reply: FastifyReply) {
     try {
       const userId = (req as any).user.id;
       const links = await prisma.userLink.findMany({
@@ -882,17 +916,17 @@ export class NotificationController {
         },
         orderBy: { linkedAt: 'desc' }
       });
-      res.json(links);
+      return reply.send(links);
     } catch (error) {
       logger.error('Error getting linked users:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al obtener la lista de usuarios vinculados.' });
     }
   }
 
-  static async updateLink(req: Request, res: Response) {
+  static async updateLink(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { linkId } = req.params;
-      const { alias, status } = req.body;
+      const { linkId } = req.params as { linkId: string };
+      const { alias, status } = req.body as any;
       const userId = (req as any).user.id;
 
       const link = await prisma.userLink.findUnique({
@@ -900,11 +934,11 @@ export class NotificationController {
       });
 
       if (!link) {
-        return res.status(404).json({ error: 'Link not found' });
+        return reply.status(404).send({ error: 'Vínculo no encontrado.' });
       }
 
       if (link.sourceId !== userId && link.targetId !== userId) {
-        return res.status(403).json({ error: 'Not authorized' });
+        return reply.status(403).send({ error: 'No tienes autorización para modificar este vínculo.' });
       }
 
       const updatedLink = await prisma.userLink.update({
@@ -919,16 +953,16 @@ export class NotificationController {
         }
       });
 
-      res.json(updatedLink);
+      return reply.send(updatedLink);
     } catch (error) {
       logger.error('Error updating link:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Ocurrió un error al actualizar el vínculo.' });
     }
   }
 
-  static async deleteLink(req: Request, res: Response) {
+  static async deleteLink(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { linkId } = req.params;
+      const { linkId } = req.params as { linkId: string };
       const userId = (req as any).user.id;
 
       const link = await prisma.userLink.findUnique({
@@ -936,27 +970,27 @@ export class NotificationController {
       });
 
       if (!link) {
-        return res.status(404).json({ error: 'Link not found' });
+        return reply.status(404).send({ error: 'Vínculo no encontrado para eliminar.' });
       }
 
       if (link.sourceId !== userId && link.targetId !== userId) {
-        return res.status(403).json({ error: 'Not authorized' });
+        return reply.status(403).send({ error: 'No tienes autorización para eliminar este vínculo.' });
       }
 
       await prisma.userLink.delete({
         where: { id: linkId }
       });
 
-      res.status(204).send();
+      return reply.status(204).send();
     } catch (error) {
       logger.error('Error deleting link:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al intentar eliminar el vínculo.' });
     }
   }
 
-  static async registerFcmToken(req: Request, res: Response) {
+  static async registerFcmToken(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { token, deviceId, deviceName } = req.body;
+      const { token, deviceId, deviceName } = req.body as any;
       const userId = (req as any).user.id;
 
       const existingToken = await prisma.fcmToken.findUnique({
@@ -985,18 +1019,18 @@ export class NotificationController {
         });
       }
 
-      res.json({ message: 'Token registered' });
+      return reply.send({ message: 'Token de notificaciones registrado correctamente.' });
     } catch (error) {
       logger.error('Error registering FCM token:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'No se pudo registrar el token de notificaciones.' });
     }
   }
 }
 
 export class PaymentGatewayController {
-  static async createCulqiPayment(req: Request, res: Response) {
+  static async createCulqiPayment(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { amount, currency, description } = req.body;
+      const { amount, currency, description } = req.body as any;
       
       const subscriptionPayment = await prisma.subscriptionPayment.create({
         data: {
@@ -1004,7 +1038,7 @@ export class PaymentGatewayController {
           amount: amount / 100,
           currency: currency,
           provider: 'CULQI',
-        },
+        }
       });
 
       const culqiApiKey = process.env.CULQI_SECRET_KEY;
@@ -1025,22 +1059,22 @@ export class PaymentGatewayController {
 
       await prisma.subscriptionPayment.update({
         where: { id: subscriptionPayment.id },
-        data: { providerPaymentId: response.data.id },
+        data: { providerPaymentId: response.data.id }
       });
 
-      res.json({
+      return reply.send({
         id: response.data.id,
         payment_url: `https://checkout.culqi.com/orders/${response.data.id}`,
       });
     } catch (error) {
       logger.error('Error creating Culqi payment:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al generar la orden de pago en Culqi. Inténtalo de nuevo.' });
     }
   }
 
-  static async createMercadoPagoPayment(req: Request, res: Response) {
+  static async createMercadoPagoPayment(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { amount, currency, description } = req.body;
+      const { amount, currency, description } = req.body as any;
       
       const subscriptionPayment = await prisma.subscriptionPayment.create({
         data: {
@@ -1048,7 +1082,7 @@ export class PaymentGatewayController {
           amount: amount,
           currency: currency,
           provider: 'MERCADO_PAGO',
-        },
+        }
       });
 
       const mpConfig = new MercadoPagoConfig({
@@ -1078,22 +1112,22 @@ export class PaymentGatewayController {
 
       await prisma.subscriptionPayment.update({
         where: { id: subscriptionPayment.id },
-        data: { providerPaymentId: result.id },
+        data: { providerPaymentId: result.id }
       });
 
-      res.json({
+      return reply.send({
         id: result.id,
         init_point: result.init_point,
       });
     } catch (error) {
       logger.error('Error creating Mercado Pago payment:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al generar la orden de pago en Mercado Pago.' });
     }
   }
 
-  static async createYapePayment(req: Request, res: Response) {
+  static async createYapePayment(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const { amount, currency, description } = req.body;
+      const { amount, currency, description } = req.body as any;
       
       const subscriptionPayment = await prisma.subscriptionPayment.create({
         data: {
@@ -1101,25 +1135,22 @@ export class PaymentGatewayController {
           amount: amount,
           currency: currency,
           provider: 'YAPE',
-        },
+        }
       });
 
-      // NOTE: For Yape, you'll need to use a payment aggregator like Culqi or Niubiz
-      // This is a placeholder implementation
-      res.json({
+      return reply.send({
         id: subscriptionPayment.id,
-        payment_url: 'https://yape.pe', // Replace with actual Yape checkout URL from your aggregator
+        payment_url: 'https://yape.pe',
       });
     } catch (error) {
       logger.error('Error creating Yape payment:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error al procesar el pago con Yape.' });
     }
   }
 
-  static async culqiWebhook(req: Request, res: Response) {
+  static async culqiWebhook(req: FastifyRequest, reply: FastifyReply) {
     try {
-      // TODO: Verify Culqi webhook signature
-      const event = req.body;
+      const event = req.body as any;
       logger.info('Received Culqi webhook event:', event);
 
       if (event.type === 'order.status.changed') {
@@ -1132,50 +1163,47 @@ export class PaymentGatewayController {
 
         if (subscriptionPayment) {
           if (orderStatus === 'paid') {
-            await prisma.subscriptionPayment.update({
-              where: { id: subscriptionPayment.id },
-              data: { status: 'COMPLETED' },
-            });
-
-            // Activate subscription
-            await prisma.user.update({
-              where: { id: subscriptionPayment.userId },
-              data: {
-                isSubscribed: true,
-                subscriptionStartDate: new Date(),
-                subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-                lastPaymentId: subscriptionPayment.id,
-                lastPaymentProvider: 'CULQI',
-              },
-            });
+            await prisma.$transaction([
+              prisma.subscriptionPayment.update({
+                where: { id: subscriptionPayment.id },
+                data: { status: 'COMPLETED' }
+              }),
+              prisma.user.update({
+                where: { id: subscriptionPayment.userId },
+                data: {
+                  isSubscribed: true,
+                  subscriptionStartDate: new Date(),
+                  subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                  lastPaymentId: subscriptionPayment.id,
+                  lastPaymentProvider: 'CULQI',
+                }
+              })
+            ]);
           } else if (orderStatus === 'expired' || orderStatus === 'deleted') {
             await prisma.subscriptionPayment.update({
               where: { id: subscriptionPayment.id },
-              data: { status: 'FAILED' },
+              data: { status: 'FAILED' }
             });
           }
         }
       }
 
-      res.status(200).send();
+      return reply.status(200).send();
     } catch (error) {
       logger.error('Error handling Culqi webhook:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error interno al procesar el webhook de pago.' });
     }
   }
 
-  static async mercadoPagoWebhook(req: Request, res: Response) {
+  static async mercadoPagoWebhook(req: FastifyRequest, reply: FastifyReply) {
     try {
-      // TODO: Verify Mercado Pago webhook signature
-      const event = req.body;
+      const event = req.body as any;
       logger.info('Received Mercado Pago webhook event:', event);
 
-      // TODO: Handle payment status changes
-
-      res.status(200).send();
+      return reply.status(200).send();
     } catch (error) {
       logger.error('Error handling Mercado Pago webhook:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      return reply.status(500).send({ error: 'Error interno al procesar el webhook de Mercado Pago.' });
     }
   }
 }

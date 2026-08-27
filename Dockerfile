@@ -1,27 +1,26 @@
-# Base image
-FROM node:20-alpine
+# Base image estable para ARMv7
+FROM node:20-bookworm-slim
 
-# Set working directory
+# Instalamos dependencias del sistema necesarias
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy package files
+# Copiamos archivos de dependencias
 COPY package*.json ./
-COPY prisma ./prisma/
+# Copiamos la configuración de Sequelize
+COPY .sequelizerc ./
+# Copiamos las migraciones y config de sequelize (archivos .cjs)
+COPY src/migrations ./src/migrations/
+COPY src/config/sequelize-config.cjs ./src/config/
+# Copiamos el código compilado
+COPY dist ./dist/
 
-# Install dependencies
-RUN npm install
+# Instalamos dependencias de producción
+RUN npm install --omit=dev
 
-# Copy source code
-COPY . .
-
-# Generate Prisma Client
-RUN npx prisma generate
-
-# Build the project
-RUN npm run build
-
-# Expose port
+# Exponemos el puerto de la API
 EXPOSE 3000
 
-# Start command
+# Iniciamos el servidor (el comando 'start' ejecutará las migraciones automáticamente)
 CMD ["npm", "start"]

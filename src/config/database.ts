@@ -1,6 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import logger from '../utils/logger';
-import 'dotenv/config';
+import logger from '../utils/logger.js';
 
 const prisma = new PrismaClient({
   log: [
@@ -13,7 +12,7 @@ const prisma = new PrismaClient({
 
 // @ts-ignore
 prisma.$on('query', (e: any) => {
-  logger.debug(e.query);
+  logger.debug(`Query: ${e.query} | Params: ${e.params}`);
 });
 
 export default prisma;

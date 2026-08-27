@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer';
-import logger from '../utils/logger';
+import logger from '../utils/logger.js';
 
 export class MailService {
   private static transporter = nodemailer.createTransport({
@@ -13,6 +13,11 @@ export class MailService {
   });
 
   static async sendOTP(email: string, code: string) {
+    // Log the code ALWAYS in development for easy access
+    if (process.env.NODE_ENV === 'development') {
+      logger.info(`[OTP DEBUG] Code for ${email}: ${code}`);
+    }
+
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 10px; padding: 20px;">
         <div style="text-align: center; margin-bottom: 20px;">
@@ -34,6 +39,12 @@ export class MailService {
     `;
 
     try {
+      // Check if credentials exist before trying to send
+      if (!process.env.MAIL_USER || !process.env.MAIL_PASS) {
+        logger.warn(`Skipping email sending to ${email}: MAIL_USER or MAIL_PASS not configured.`);
+        return;
+      }
+
       await this.transporter.sendMail({
         from: `"Yape Transporte" <${process.env.MAIL_USER}>`,
         to: email,
@@ -42,12 +53,7 @@ export class MailService {
       });
       logger.info(`OTP sent successfully to ${email}`);
     } catch (error) {
-      logger.error(`Error sending email to ${email}:`, error);
-      // In development, we still log the code so the user can test without working SMTP
-      if (process.env.NODE_ENV === 'development') {
-        logger.info(`[DEV ONLY] Verification code for ${email}: ${code}`);
-      }
-      throw error;
+      logger.error(`Failed to send email to ${email}, but continuing process:`, error);
     }
   }
 }

@@ -1,23 +1,25 @@
-import { Request, Response, NextFunction } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { ZodSchema, ZodError } from 'zod';
 
 export const validate = (schema: ZodSchema) => 
-  async (req: Request, res: Response, next: NextFunction) => {
+  async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       await schema.parseAsync({
         body: req.body,
         query: req.query,
         params: req.params,
       });
-      return next();
     } catch (error) {
       if (error instanceof ZodError) {
-        return res.status(400).json({
+        return reply.status(400).send({
           status: 'error',
-          message: 'Validation failed',
-          errors: error.issues,
+          message: 'Los datos enviados no son válidos.',
+          errors: error.issues.map(issue => ({
+            field: issue.path.join('.'),
+            message: issue.message
+          })),
         });
       }
-      return res.status(500).json({ status: 'error', message: 'Internal server error' });
+      return reply.status(500).send({ status: 'error', message: 'Ocurrió un error interno en el servidor.' });
     }
   };

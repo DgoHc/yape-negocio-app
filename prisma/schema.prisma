@@ -3,36 +3,36 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id                    String               @id @default(uuid())
+  id                    String                @id @default(uuid())
   name                  String
-  email                 String               @unique
+  email                 String                @unique
   password              String
   phone                 String?
-  businessType          String? // Rubro: transporte, librería, etc.
-  isVerified            Boolean              @default(false)
+  businessType          String?
+  isVerified            Boolean               @default(false)
   trialStartDate        DateTime?
   trialEndDate          DateTime?
-  isSubscribed          Boolean              @default(false)
+  isSubscribed          Boolean               @default(false)
   subscriptionStartDate DateTime?
   subscriptionEndDate   DateTime?
   lastPaymentId         String?
-  lastPaymentProvider   PaymentProvider?
-  status                String               @default("ACTIVE")
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  notificationCode      String?              @unique
+  lastPaymentProvider   String?
+  status                String                @default("ACTIVE")
+  notificationCode      String?               @unique
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
   devices               Device[]
   payments              Payment[]
   subscriptionPayments  SubscriptionPayment[]
-  sentLinkRequests      LinkRequest[]        @relation("LinkRequestSender")
-  receivedLinkRequests  LinkRequest[]      @relation("LinkRequestReceiver")
-  incomingLinks         UserLink[]           @relation("UserLinkSource")
-  outgoingLinks         UserLink[]           @relation("UserLinkTarget")
+  sentLinkRequests      LinkRequest[]         @relation("LinkRequestSender")
+  receivedLinkRequests  LinkRequest[]         @relation("LinkRequestReceiver")
+  incomingLinks         UserLink[]            @relation("UserLinkSource")
+  outgoingLinks         UserLink[]            @relation("UserLinkTarget")
   fcmTokens             FcmToken[]
 }
 
@@ -47,7 +47,7 @@ model Device {
   androidVersion   String?
   pushToken        String?
   isApproved       Boolean           @default(false)
-  status           String            @default("ACTIVE") // ACTIVE, SUSPENDED
+  status           String            @default("ACTIVE")
   lastConnectedAt  DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -55,115 +55,93 @@ model Device {
   user             User?             @relation(fields: [userId], references: [id])
   payments         Payment[]
   secondaryNumbers SecondaryNumber[]
-  auditLogs        AuditLog[]
 }
 
 model Payment {
-  id          String   @id @default(uuid())
-  externalId  String?  @unique
-  amount      Float
-  currency    String   @default("PEN")
-  senderName  String
-  rawText     String?
-  isSynced    Boolean  @default(true)
-  deviceId    String
-  device      Device   @relation(fields: [deviceId], references: [id])
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id])
-  createdAt   DateTime @default(now())
+  id              String   @id @default(uuid())
+  externalId      String?  @unique
+  amount          Float
+  currency        String   @default("PEN")
+  senderName      String
+  rawText         String?
+  operationNumber String?
+  isSynced        Boolean  @default(true)
+  deviceId        String
+  device          Device   @relation(fields: [deviceId], references: [id])
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+  createdAt       DateTime @default(now())
 }
 
 model SubscriptionPayment {
-  id                String          @id @default(uuid())
+  id                String   @id @default(uuid())
   userId            String
-  user              User            @relation(fields: [userId], references: [id])
+  user              User     @relation(fields: [userId], references: [id])
   amount            Float
-  currency          String          @default("PEN")
-  provider          PaymentProvider
+  currency          String   @default("PEN")
+  provider          String
   providerPaymentId String?
-  status            PaymentStatus   @default(PENDING)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  status            String   @default("PENDING")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model AdminUser {
   id        String   @id @default(uuid())
   username  String   @unique
   pinHash   String
-  role      String   @default("ADMIN") // SUPER_ADMIN, ADMIN, SUPERVISOR
-  status    String   @default("ACTIVE") // ACTIVE, SUSPENDED
+  role      String   @default("ADMIN")
+  status    String   @default("ACTIVE")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
-
-enum PaymentProvider {
-  CULQI
-  MERCADO_PAGO
-  YAPE
-}
-
-enum PaymentStatus {
-  PENDING
-  COMPLETED
-  FAILED
-  REFUNDED
 }
 
 model SecondaryNumber {
   id          String   @id @default(uuid())
   phoneNumber String
+  type        String   @default("whatsapp")
   deviceId    String
   device      Device   @relation(fields: [deviceId], references: [id])
   createdAt   DateTime @default(now())
 }
 
-model AuditLog {
-  id        String   @id @default(uuid())
-  action    String
-  details   String?
-  deviceId  String?
-  device    Device?  @relation(fields: [deviceId], references: [id])
-  adminId   String?
-  createdAt DateTime @default(now())
-}
-
 model LinkRequest {
-  id          String   @id @default(uuid())
-  senderId    String
-  sender      User     @relation("LinkRequestSender", fields: [senderId], references: [id])
-  receiverId  String
-  receiver    User     @relation("LinkRequestReceiver", fields: [receiverId], references: [id])
-  status      String   @default("PENDING") // PENDING, ACCEPTED, REJECTED
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(uuid())
+  senderId   String
+  sender     User     @relation("LinkRequestSender", fields: [senderId], references: [id])
+  receiverId String
+  receiver   User     @relation("LinkRequestReceiver", fields: [receiverId], references: [id])
+  status     String   @default("PENDING")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([senderId, receiverId])
 }
 
 model UserLink {
-  id          String   @id @default(uuid())
-  sourceId    String
-  source      User     @relation("UserLinkSource", fields: [sourceId], references: [id])
-  targetId    String
-  target      User     @relation("UserLinkTarget", fields: [targetId], references: [id])
-  alias       String?
-  status      String   @default("ACTIVE") // ACTIVE, SUSPENDED
-  linkedAt    DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  sourceId  String
+  source    User     @relation("UserLinkSource", fields: [sourceId], references: [id])
+  targetId  String
+  target    User     @relation("UserLinkTarget", fields: [targetId], references: [id])
+  alias     String?
+  status    String   @default("ACTIVE")
+  linkedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([sourceId, targetId])
 }
 
 model FcmToken {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  token       String   @unique
-  deviceId    String?
-  deviceName  String?
-  status      String   @default("ACTIVE") // ACTIVE, INACTIVE
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  token      String   @unique
+  deviceId   String?
+  deviceName String?
+  status     String   @default("ACTIVE")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model VerificationCode {

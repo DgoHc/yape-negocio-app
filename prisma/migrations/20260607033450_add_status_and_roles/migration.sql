@@ -1,5 +1,0 @@
--- AlterTable
-ALTER TABLE `adminuser` ADD COLUMN `status` VARCHAR(191) NOT NULL DEFAULT 'ACTIVE';
-
--- AlterTable
-ALTER TABLE `device` ADD COLUMN `status` VARCHAR(191) NOT NULL DEFAULT 'ACTIVE';
