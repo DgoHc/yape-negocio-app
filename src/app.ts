@@ -59,7 +59,7 @@ app.addHook('onRequest', async (request, reply) => {
 app.get('/', async () => {
   return {
     name: 'Yape Transporte API',
-    version: '2.0.0',
+    version: '2.0.1',
     status: 'online',
     docs: '/docs'
   };

@@ -13,6 +13,9 @@ RUN npm install
 
 COPY . .
 
+# Limpieza forzada de archivos legacy antes de compilar
+RUN rm -rf src/seeders/initial-seed.ts src/utils/check-db.ts
+
 # Generar el cliente de Prisma y compilar TypeScript
 RUN npx prisma generate
 RUN npm run build
