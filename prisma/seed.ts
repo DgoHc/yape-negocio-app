@@ -4,8 +4,10 @@ import crypto from 'crypto';
 const prisma = new PrismaClient();
 
 async function main() {
-  const username = 'admin';
-  const pin = '123456';
+  // CONFIGURACIÓN DE ACCESO SEGURO
+  // Cambia estos valores por algo que solo tú sepas
+  const username = process.env.ADMIN_USERNAME || 'diego_admin_elite';
+  const pin = process.env.ADMIN_PIN || '998877665544332211'; // PIN muy largo y seguro
 
   // Hashing consistently with AdminController.createUser
   const salt = crypto.randomBytes(16).toString('hex');

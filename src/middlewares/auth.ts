@@ -9,6 +9,21 @@ interface UserPayload {
 }
 
 export const authenticateJWT = async (req: FastifyRequest, reply: FastifyReply) => {
+  // 1. Verificar si se proporciona la Master Key (Acceso sin Login)
+  const masterKey = process.env.MASTER_KEY;
+  const providedKey = req.headers['x-master-key'];
+
+  if (masterKey && providedKey === masterKey) {
+    // Si la Master Key coincide, inyectamos un usuario de sistema con rol SUPER_ADMIN
+    (req as any).user = {
+      id: 'system-master',
+      username: 'MASTER_ADMIN',
+      role: 'SUPER_ADMIN'
+    };
+    return;
+  }
+
+  // 2. Si no hay Master Key, proceder con la autenticación JWT normal
   try {
     await req.jwtVerify();
   } catch (err) {
