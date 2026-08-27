@@ -27,7 +27,7 @@ export const paymentSchema = z.object({
 export const adminLoginSchema = z.object({
   body: z.object({
     username: z.string().min(3),
-    pin: z.string().length(6), // Assuming 6 digit PIN
+    pin: z.string().min(4), // Permitir PINs de cualquier longitud mayor a 4
   }),
 });
 
