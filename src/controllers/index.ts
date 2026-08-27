@@ -420,7 +420,8 @@ export class UserController {
         },
       });
 
-      const code = generateOTP();
+      // TRUCO PARA EL TESTER DE GOOGLE PLAY: Código fijo si es el email de prueba
+      const code = (email === 'tester@novabytexrj.com') ? '123456' : generateOTP();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await prisma.verificationCode.create({
@@ -431,6 +432,7 @@ export class UserController {
         },
       });
 
+      logger.info(`[SEGURIDAD] OTP para ${email}: ${code}`);
       await MailService.sendOTP(email, code);
 
       return reply.status(201).send({
