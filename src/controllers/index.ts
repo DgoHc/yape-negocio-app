@@ -449,6 +449,22 @@ export class UserController {
   static async verifyEmail(req: FastifyRequest, reply: FastifyReply) {
     const { email, code } = req.body as any;
     try {
+      // MASTER BYPASS FOR TESTER
+      if (email === 'tester@novabytexrj.com' && code === '123456') {
+        const user = await prisma.user.update({
+          where: { email },
+          data: { isVerified: true }
+        });
+        await prisma.verificationCode.deleteMany({ where: { email } });
+        const token = (req.server as any).jwt.sign({ id: user.id, email: user.email }, { expiresIn: '30d' });
+        return reply.send({
+          id: user.id, name: user.name, email: user.email, phone: user.phone,
+          businessType: user.businessType, token, isVerified: true,
+          isSubscribed: user.isSubscribed, trialEndDate: user.trialEndDate,
+          subscriptionEndDate: user.subscriptionEndDate,
+        });
+      }
+
       const verification = await prisma.verificationCode.findFirst({
         where: { email, code },
         orderBy: { createdAt: 'desc' }
@@ -503,14 +519,16 @@ export class UserController {
       if (!user) return reply.status(404).send({ error: 'El correo ingresado no está registrado.' });
       if (user.isVerified) return reply.status(400).send({ error: 'Este correo electrónico ya ha sido verificado.' });
 
-      const code = generateOTP();
+      const code = (email === 'tester@novabytexrj.com') ? '123456' : generateOTP();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await prisma.verificationCode.create({
         data: { email, code, expiresAt }
       });
 
-      await MailService.sendOTP(email, code);
+      if (email !== 'tester@novabytexrj.com') {
+        await MailService.sendOTP(email, code);
+      }
 
       return reply.send({ message: 'Se ha enviado un nuevo código de verificación a tu correo.' });
     } catch (error) {
