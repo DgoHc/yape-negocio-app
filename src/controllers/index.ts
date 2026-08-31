@@ -18,7 +18,7 @@ function generateNotificationCode(): string {
   const prefix = chars[Math.floor(Math.random() * 26)] + chars[Math.floor(Math.random() * 26)] + chars[Math.floor(Math.random() * 26)];
   let code = '';
   for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * 36)];
+    code += chars[Math.floor(Math.random() * chars.length)];
   }
   return `${prefix}-${code}`;
 }
@@ -578,24 +578,28 @@ export class UserController {
 
   static async googleLogin(req: FastifyRequest, reply: FastifyReply) {
     const { email, name, googleId } = req.body as any;
-    logger.info(`Google login request for: ${email}`);
+    logger.info(`>>> [GOOGLE] Petición de login para: ${email}`);
+
     try {
       let user = await prisma.user.findUnique({ where: { email } });
 
       if (!user) {
-        logger.info(`Creating new user via Google: ${email}`);
+        logger.info(`>>> [GOOGLE] Usuario nuevo detectable. Creando registro en DB...`);
         const notificationCode = generateNotificationCode();
+
+        // Creamos el usuario. La contraseña es un hash de seguridad que no usará directamente.
         user = await prisma.user.create({
           data: {
             email,
             name,
-            password: await bcrypt.hash(`GOOGLE_SIGN_IN_${googleId}`, 10),
+            password: await bcrypt.hash(`GOOGLE_AUTH_${googleId}`, 10),
             isVerified: true,
             notificationCode,
           }
         });
+        logger.info(`>>> [GOOGLE] Usuario creado con ID: ${user.id}`);
       } else {
-        logger.info(`Existing user logged in via Google: ${email}`);
+        logger.info(`>>> [GOOGLE] Usuario existente encontrado. Actualizando sesión...`);
       }
 
       const token = (req.server as any).jwt.sign(
@@ -603,6 +607,7 @@ export class UserController {
         { expiresIn: '30d' }
       );
 
+      logger.info(`>>> [GOOGLE] Login exitoso para ${email}. Enviando respuesta.`);
       return reply.send({
         id: user.id,
         name: user.name,
@@ -616,8 +621,11 @@ export class UserController {
         subscriptionEndDate: user.subscriptionEndDate,
       });
     } catch (error) {
-      logger.error('Error in google login:', error);
-      return reply.status(500).send({ error: 'Error al iniciar sesión con Google.' });
+      logger.error('>>> [GOOGLE] FALLO INTERNO EN SERVIDOR:', error);
+      return reply.status(500).send({
+        error: 'El servidor no pudo procesar la vinculación con Google.',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   }
 
