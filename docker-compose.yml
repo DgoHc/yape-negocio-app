@@ -7,7 +7,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "123456"
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-123456}
       POSTGRES_DB: yape_transporte
     ports:
       - '5432:5432'
@@ -20,14 +20,11 @@ services:
     restart: always
     ports:
       - '3000:3000'
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: "postgresql://postgres:123456@db:5432/yape_transporte?schema=public"
-      JWT_SECRET: "SONOPAY_ELITE_TOKEN_SECRET_2025"
-      PORT: 3000
+      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:-123456}@db:5432/yape_transporte?schema=public"
       NODE_ENV: production
-      MASTER_KEY: "SONOPAY_ULTIMATE_SECURITY_2025_ACCESS"
-      ADMIN_USERNAME: "diego_master"
-      ADMIN_PIN: "2025889966"
     depends_on:
       - db
 
