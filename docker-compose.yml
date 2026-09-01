@@ -7,12 +7,12 @@ services:
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-123456}
+      POSTGRES_PASSWORD: "123456"
       POSTGRES_DB: yape_transporte
     ports:
       - '5432:5432'
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - yape_postgres_volume:/var/lib/postgresql/data
 
   app:
     build: .
@@ -23,10 +23,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:-123456}@db:5432/yape_transporte?schema=public"
+      DATABASE_URL: "postgresql://postgres:123456@db:5432/yape_transporte?schema=public"
       NODE_ENV: production
     depends_on:
       - db
 
 volumes:
-  postgres_data:
+  yape_postgres_volume:
+    name: yape_production_data
