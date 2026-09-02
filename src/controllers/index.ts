@@ -433,7 +433,11 @@ export class UserController {
       });
 
       logger.info(`[SEGURIDAD] OTP para ${email}: ${code}`);
-      await MailService.sendOTP(email, code);
+
+      // Enviamos el correo en segundo plano (sin 'await') para evitar bloqueos/timeouts
+      MailService.sendOTP(email, code).catch(err => {
+        logger.error(`Error enviando correo a ${email}:`, err);
+      });
 
       return reply.status(201).send({
         message: 'Registro exitoso. Por favor verifica tu correo electrónico.',

@@ -6,13 +6,16 @@ services:
     container_name: yape-db
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "123456"
+      POSTGRES_USER: sonouser
+      POSTGRES_PASSWORD: sonopay2025
       POSTGRES_DB: yape_transporte
-    ports:
-      - '5432:5432'
     volumes:
-      - yape_postgres_volume:/var/lib/postgresql/data
+      - yape_final_volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonouser -d yape_transporte"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   app:
     build: .
@@ -23,11 +26,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://postgres:123456@db:5432/yape_transporte?schema=public"
+      DATABASE_URL: "postgresql://sonouser:sonopay2025@db:5432/yape_transporte?schema=public"
       NODE_ENV: production
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
-  yape_postgres_volume:
-    name: yape_production_data
+  yape_final_volume:
