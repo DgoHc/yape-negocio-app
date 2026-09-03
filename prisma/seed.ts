@@ -1,34 +1,51 @@
 import { PrismaClient } from '@prisma/client';
-import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  // CONFIGURACIÓN DE ACCESO SEGURO
-  // Cambia estos valores por algo que solo tú sepas
-  const username = process.env.ADMIN_USERNAME || 'diego_admin_elite';
-  const pin = process.env.ADMIN_PIN || '998877665544332211'; // PIN muy largo y seguro
+  // 1. Crear el usuario Administrador Maestro
+  const adminPin = process.env.ADMIN_PIN || '2025889966';
+  const adminSalt = 'static_salt_for_admin';
+  const adminPinHash = '869062608404285741639f7f8582f07011d88257007e0689b6574a441e8c62c3:static_salt_for_admin';
 
-  // Hashing consistently with AdminController.createUser
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hashed = crypto.createHash('sha256').update(pin + salt).digest('hex');
-  const pinHash = `${hashed}:${salt}`;
-
-  const admin = await prisma.adminUser.upsert({
-    where: { username },
+  await prisma.adminUser.upsert({
+    where: { username: 'diego_master' },
     update: {},
     create: {
-      username,
-      pinHash,
+      username: 'diego_master',
+      pinHash: adminPinHash,
       role: 'SUPER_ADMIN',
     },
   });
 
-  console.log('--------------------------------------');
-  console.log('SEED COMPLETO');
-  console.log(`Usuario Admin creado: ${admin.username}`);
-  console.log(`PIN: ${pin}`);
-  console.log('--------------------------------------');
+  // 2. CREAR CUENTA DE TESTER PARA GOOGLE PLAY
+  // Esta cuenta tendrá acceso total de por vida para los revisores.
+  const testerEmail = 'tester@novabytexrj.com';
+  const testerPassword = await bcrypt.hash('google123456', 10);
+  const farFuture = new Date();
+  farFuture.setFullYear(farFuture.getFullYear() + 10); // Suscripción válida por 10 años
+
+  await prisma.user.upsert({
+    where: { email: testerEmail },
+    update: {
+      isVerified: true,
+      isSubscribed: true,
+      subscriptionEndDate: farFuture,
+    },
+    create: {
+      email: testerEmail,
+      name: 'Google Play Tester',
+      password: testerPassword,
+      isVerified: true,
+      isSubscribed: true,
+      subscriptionEndDate: farFuture,
+      businessType: 'Comercio',
+      notificationCode: 'TEST-GOOGLE',
+    },
+  });
+
+  console.log('✅ SEED COMPLETO: Admin y Tester de Google creados con éxito.');
 }
 
 main()
