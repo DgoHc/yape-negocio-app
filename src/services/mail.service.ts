@@ -2,18 +2,26 @@ import nodemailer from 'nodemailer';
 import logger from '../utils/logger.js';
 
 export class MailService {
+  // Función para limpiar comillas de las variables de entorno
+  private static getEnv(key: string): string {
+    const value = process.env[key] || '';
+    return value.replace(/['"]+/g, '').trim();
+  }
+
   private static transporter = nodemailer.createTransport({
-    host: process.env.MAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.MAIL_PORT || '587'),
-    secure: process.env.MAIL_SECURE === 'true',
+    host: MailService.getEnv('MAIL_HOST') || 'smtp.gmail.com',
+    port: parseInt(MailService.getEnv('MAIL_PORT') || '587'),
+    secure: false, // Usamos TLS (587) que es más compatible en DigitalOcean
     auth: {
-      user: process.env.MAIL_USER,
-      pass: process.env.MAIL_PASS,
+      user: MailService.getEnv('MAIL_USER'),
+      pass: MailService.getEnv('MAIL_PASS'),
     },
+    tls: {
+      rejectUnauthorized: false // Evita errores de certificados en servidores
+    }
   });
 
   static async sendOTP(email: string, code: string) {
-    // Log del código para Diego (Siempre visible en terminal para validación)
     logger.info(`[SEGURIDAD] OTP Generado para ${email}: ${code}`);
 
     const html = `
@@ -27,7 +35,7 @@ export class MailService {
           <div style="font-size: 32px; font-weight: bold; color: #7C4DFF; letter-spacing: 5px; margin: 20px 0; padding: 10px; border: 2px dashed #7C4DFF; display: inline-block;">
             ${code}
           </div>
-          <p style="color: #999; font-size: 14px;">Este código expirará en 10 minutos.</p>
+          <p style="color: #999; font-size: 14px;">Este código expirará en 15 minutos.</p>
         </div>
         <div style="margin-top: 20px; font-size: 12px; color: #aaa; text-align: center;">
           <p>Si no solicitaste este código, puedes ignorar este correo con seguridad.</p>
@@ -37,21 +45,23 @@ export class MailService {
     `;
 
     try {
-      // Check if credentials exist before trying to send
-      if (!process.env.MAIL_USER || !process.env.MAIL_PASS) {
+      const user = MailService.getEnv('MAIL_USER');
+      const pass = MailService.getEnv('MAIL_PASS');
+
+      if (!user || !pass) {
         logger.warn(`Skipping email sending to ${email}: MAIL_USER or MAIL_PASS not configured.`);
         return;
       }
 
       await this.transporter.sendMail({
-        from: `"Yape Transporte" <${process.env.MAIL_USER}>`,
+        from: `"Yape Transporte" <${user}>`,
         to: email,
         subject: 'Código de verificación - Yape Transporte',
         html: html,
       });
       logger.info(`OTP sent successfully to ${email}`);
     } catch (error) {
-      logger.error(`Failed to send email to ${email}, but continuing process:`, error);
+      logger.error(`Failed to send email to ${email}:`, error);
     }
   }
 }

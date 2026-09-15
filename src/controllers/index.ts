@@ -460,13 +460,17 @@ export class UserController {
   static async verifyEmail(req: FastifyRequest, reply: FastifyReply) {
     const { email, code } = req.body as any;
     try {
+      // Limpiamos el código de espacios y lo aseguramos como string
+      const cleanCode = code?.toString().trim();
+      const cleanEmail = email?.toString().trim().toLowerCase();
+
       // MASTER BYPASS FOR TESTER
-      if (email === 'tester@novabytexrj.com' && code === '123456') {
+      if (cleanEmail === 'tester@novabytexrj.com' && cleanCode === '123456') {
         const user = await prisma.user.update({
-          where: { email },
+          where: { email: cleanEmail },
           data: { isVerified: true }
         });
-        await prisma.verificationCode.deleteMany({ where: { email } });
+        await prisma.verificationCode.deleteMany({ where: { email: cleanEmail } });
         const token = (req.server as any).jwt.sign({ id: user.id, email: user.email }, { expiresIn: '30d' });
         return reply.send({
           id: user.id, name: user.name, email: user.email, phone: user.phone,
@@ -477,7 +481,10 @@ export class UserController {
       }
 
       const verification = await prisma.verificationCode.findFirst({
-        where: { email, code },
+        where: {
+          email: cleanEmail,
+          code: cleanCode
+        },
         orderBy: { createdAt: 'desc' }
       });
 
