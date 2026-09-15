@@ -129,16 +129,16 @@ export class DeviceController {
   }
 
   static async unapprove(req: FastifyRequest, reply: FastifyReply) {
-    const { uuid } = req.body as { uuid: string };
+    const { uuid } = (req.body as any) || (req.params as any) || {};
     try {
-      const device = await prisma.device.update({
+      await prisma.device.update({
         where: { uuid },
         data: { isApproved: false }
       });
       return reply.send({ message: 'Dispositivo desaprobado correctamente.' });
     } catch (error) {
       logger.error('Error unapproving device:', error);
-      return reply.status(404).send({ error: 'Dispositivo no encontrado para desaprobar.' });
+      return reply.status(404).send({ error: 'Dispositivo no encontrado.' });
     }
   }
 
