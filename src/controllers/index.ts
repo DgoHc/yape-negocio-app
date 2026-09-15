@@ -439,10 +439,17 @@ export class UserController {
         logger.error(`Error enviando correo a ${email}:`, err);
       });
 
+      // Devolvemos el perfil del usuario (aunque no verificado) para que el frontend no falle al parsear
       return reply.status(201).send({
-        message: 'Registro exitoso. Por favor verifica tu correo electrónico.',
+        token: '', // No enviamos token aún hasta que verifique
+        id: user.id,
+        name: user.name,
         email: user.email,
-        requiresVerification: true
+        phone: user.phone,
+        businessType: user.businessType,
+        isVerified: false,
+        requiresVerification: true,
+        message: 'Registro exitoso. Verifica tu correo.'
       });
     } catch (error) {
       logger.error('Error registering user:', error);
@@ -523,15 +530,21 @@ export class UserController {
       if (!user) return reply.status(404).send({ error: 'El correo ingresado no está registrado.' });
       if (user.isVerified) return reply.status(400).send({ error: 'Este correo electrónico ya ha sido verificado.' });
 
+      // Eliminamos códigos anteriores para evitar confusiones
+      await prisma.verificationCode.deleteMany({ where: { email } });
+
       const code = (email === 'tester@novabytexrj.com') ? '123456' : generateOTP();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // Aumentamos a 15 min para dar margen
 
       await prisma.verificationCode.create({
         data: { email, code, expiresAt }
       });
 
+      logger.info(`[RE-ENVÍO] Nuevo OTP para ${email}: ${code}`);
+
       if (email !== 'tester@novabytexrj.com') {
-        await MailService.sendOTP(email, code);
+        // Envío asíncrono
+        MailService.sendOTP(email, code).catch(err => logger.error('Error re-enviando OTP:', err));
       }
 
       return reply.send({ message: 'Se ha enviado un nuevo código de verificación a tu correo.' });
@@ -544,8 +557,45 @@ export class UserController {
   static async login(req: FastifyRequest, reply: FastifyReply) {
     const { email, password } = req.body as any;
     try {
-      const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) return reply.status(401).send({ error: 'Credenciales inválidas o usuario no registrado.' });
+      // 1. Intentar buscar primero en la tabla de Usuarios (Choferes)
+      let user = await prisma.user.findUnique({ where: { email } });
+
+      if (!user) {
+        // 2. Si no existe como usuario, verificar si es un Administrador
+        const admin = await prisma.adminUser.findUnique({ where: { username: email } });
+
+        if (admin) {
+          // Lógica de validación de PIN para admin
+          const storedHash = admin.pinHash;
+          let isPinValid = false;
+          if (storedHash.includes(':')) {
+            const [hashed, salt] = storedHash.split(':');
+            const inputHash = crypto.createHash('sha256').update(password + salt).digest('hex');
+            isPinValid = (inputHash === hashed);
+          } else {
+            const inputHash = crypto.createHash('sha256').update(password).digest('hex');
+            isPinValid = (inputHash === storedHash);
+          }
+
+          if (isPinValid) {
+            const token = (req.server as any).jwt.sign(
+              { id: admin.id, username: admin.username, role: admin.role },
+              { expiresIn: '30d' }
+            );
+            logger.info(`>>> [ADMIN] Login maestro detectado para: ${admin.username}`);
+            return reply.send({
+              id: admin.id,
+              name: 'Administrador Maestro',
+              email: admin.username,
+              token,
+              role: admin.role,
+              isSubscribed: true // Los admins tienen acceso total
+            });
+          }
+        }
+
+        return reply.status(401).send({ error: 'Credenciales inválidas o usuario no registrado.' });
+      }
 
       if (!user.isVerified) {
         return reply.status(403).send({
@@ -1192,7 +1242,8 @@ export class PaymentGatewayController {
       const event = req.body as any;
       logger.info('Received Culqi webhook event:', event);
 
-      if (event.type === 'order.status.changed') {
+      // Aceptamos tanto order.status.changed como order.update (succeeded)
+      if (event.type === 'order.status.changed' || event.type === 'order.update') {
         const orderId = event.data.object.id;
         const orderStatus = event.data.object.status;
 
@@ -1201,6 +1252,7 @@ export class PaymentGatewayController {
         });
 
         if (subscriptionPayment) {
+          // 'paid' es el estado de éxito en Culqi
           if (orderStatus === 'paid') {
             await prisma.$transaction([
               prisma.subscriptionPayment.update({
