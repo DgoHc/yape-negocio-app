@@ -8,16 +8,25 @@ export class MailService {
     const apiKey = (process.env.RESEND_API_KEY || '').replace(/['"]+/g, '').trim();
 
     if (!apiKey) {
-      logger.warn('RESEND_API_KEY no configurada. El correo no se enviará, pero el código es visible arriba.');
+      logger.warn('RESEND_API_KEY no configurada.');
       return;
     }
 
     try {
+      // IMPORTANTE: Una vez que el dominio esté 'Verified' en Resend,
+      // usaremos el remitente oficial de novabytexrj.com
       await axios.post('https://api.resend.com/emails', {
-        from: 'SonoPay <onboarding@resend.dev>', // Usamos el dominio de prueba de Resend
+        from: 'SonoPay <otp@novabytexrj.com>',
         to: email,
-        subject: 'Tu código de verificación - SonoPay',
-        html: `<strong>Tu código es: ${code}</strong>. Expira en 15 minutos.`
+        subject: 'Código de Verificación - SonoPay',
+        html: `
+          <div style="font-family: sans-serif; text-align: center; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+            <h2 style="color: #7C4DFF;">Verifica tu identidad</h2>
+            <p>Usa este código para ingresar a SonoPay:</p>
+            <div style="font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0; color: #333;">${code}</div>
+            <p style="color: #999; font-size: 12px;">Este código expira en 15 minutos.</p>
+          </div>
+        `
       }, {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -26,7 +35,8 @@ export class MailService {
       });
       logger.info(`OTP sent successfully via RESEND to ${email}`);
     } catch (error: any) {
-      logger.error('Resend API Error:', error.response?.data || error.message);
+      const errorData = error.response?.data;
+      logger.error('Resend API Error:', errorData || error.message);
     }
   }
 }
