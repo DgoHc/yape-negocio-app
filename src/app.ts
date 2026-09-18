@@ -65,6 +65,15 @@ app.get('/', async () => {
   };
 });
 
+// Rutas legales para aprobación de Culqi
+app.get('/privacy', async (request, reply) => {
+  reply.type('text/html').send('<h1>Política de Privacidad - SonoPay</h1><p>En SonoPay protegemos tus datos. Solo procesamos notificaciones de pago para lectura por voz.</p>');
+});
+
+app.get('/terms', async (request, reply) => {
+  reply.type('text/html').send('<h1>Términos de Servicio - SonoPay</h1><p>Al usar SonoPay, aceptas que la app acceda a tus notificaciones de pago para convertirlas en audio.</p>');
+});
+
 // 6. Registro de Rutas (Plugins)
 await app.register(routes, { prefix: '/api' });
 
