@@ -38,11 +38,11 @@ await app.register(jwt, {
 await app.register(swagger, {
   openapi: {
     info: {
-      title: 'Yape Transporte API (Elite)',
-      description: 'API de alto rendimiento para gestión de pagos Yape',
+      title: 'SonoPay API (Elite)',
+      description: 'API de alto rendimiento para gestión de pagos SonoPay',
       version: '2.1.0',
     },
-    servers: [{ url: 'http://104.248.230.19:3000' }],
+    servers: [{ url: 'https://api.novabytexrj.com' }],
   },
 });
 
@@ -58,8 +58,8 @@ app.addHook('onRequest', async (request, reply) => {
 // Ruta raíz para verificación
 app.get('/', async () => {
   return {
-    name: 'Yape Transporte API',
-    version: '2.0.1',
+    name: 'SonoPay API',
+    version: '2.1.0',
     status: 'online',
     docs: '/docs'
   };
