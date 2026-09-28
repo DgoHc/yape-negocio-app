@@ -358,25 +358,35 @@ export class AdminController {
 
   static async updateAppUserSubscription(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
-    const { isSubscribed } = req.body as { isSubscribed: boolean };
+    const { isSubscribed, days } = req.body as { isSubscribed: boolean; days?: number };
     try {
-      const user = await prisma.user.update({
+      const user = await prisma.user.findUnique({ where: { id } });
+      if (!user) return reply.status(404).send({ error: 'Usuario no encontrado.' });
+
+      const durationDays = days && days > 0 ? days : 30;
+      const subscriptionStartDate = isSubscribed ? new Date() : user.subscriptionStartDate;
+      const subscriptionEndDate = isSubscribed
+        ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000)
+        : new Date(Date.now() - 1000); // Expirado inmediatamente si se suspende
+
+      const updatedUser = await prisma.user.update({
         where: { id },
         data: {
           isSubscribed,
-          subscriptionStartDate: isSubscribed ? new Date() : undefined,
-          subscriptionEndDate: isSubscribed ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : undefined
+          subscriptionStartDate,
+          subscriptionEndDate,
+          status: isSubscribed ? 'ACTIVE' : 'SUSPENDED',
         }
       });
-      return reply.send(user);
+      return reply.send(updatedUser);
     } catch (error) {
       logger.error('Error updating app user subscription:', error);
-      return reply.status(404).send({ error: 'Usuario no encontrado para gestionar suscripción.' });
+      return reply.status(500).send({ error: 'Usuario no encontrado o error al gestionar suscripción.' });
     }
   }
 
   static async createAppUser(req: FastifyRequest, reply: FastifyReply) {
-    const { name, email, password, phone, businessType, isSubscribed } = req.body as any;
+    const { name, email, password, phone, businessType, isSubscribed, days } = req.body as any;
     try {
       const cleanEmail = email.trim().toLowerCase();
       const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
@@ -393,6 +403,7 @@ export class AdminController {
         codeExists = !!existingCode;
       }
 
+      const durationDays = days && days > 0 ? days : 30;
       const user = await prisma.user.create({
         data: {
           name,
@@ -404,7 +415,8 @@ export class AdminController {
           isVerified: true,
           isSubscribed: isSubscribed ?? true,
           subscriptionStartDate: isSubscribed ? new Date() : undefined,
-          subscriptionEndDate: isSubscribed ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : undefined,
+          subscriptionEndDate: isSubscribed ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000) : undefined,
+          status: isSubscribed ? 'ACTIVE' : 'SUSPENDED',
         }
       });
 
@@ -417,9 +429,11 @@ export class AdminController {
 
   static async updateAppUser(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
-    const { name, email, phone, businessType, isSubscribed, subscriptionPlan } = req.body as any;
+    const { name, email, phone, businessType, isSubscribed, subscriptionPlan, days } = req.body as any;
     try {
       const cleanEmail = email ? email.trim().toLowerCase() : undefined;
+      const durationDays = days && days > 0 ? days : 30;
+
       const user = await prisma.user.update({
         where: { id },
         data: {
@@ -429,8 +443,11 @@ export class AdminController {
           businessType: businessType !== undefined ? businessType : undefined,
           isSubscribed: isSubscribed !== undefined ? isSubscribed : undefined,
           subscriptionPlan: subscriptionPlan !== undefined ? subscriptionPlan : undefined,
-          subscriptionStartDate: isSubscribed ? new Date() : undefined,
-          subscriptionEndDate: isSubscribed ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : undefined,
+          subscriptionStartDate: isSubscribed === true ? new Date() : undefined,
+          subscriptionEndDate: isSubscribed === true
+            ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000)
+            : (isSubscribed === false ? new Date(Date.now() - 1000) : undefined),
+          status: isSubscribed !== undefined ? (isSubscribed ? 'ACTIVE' : 'SUSPENDED') : undefined,
         }
       });
 
@@ -444,11 +461,26 @@ export class AdminController {
   static async deleteAppUser(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
     try {
-      await prisma.user.delete({ where: { id } });
+      const user = await prisma.user.findUnique({ where: { id } });
+      if (!user) {
+        return reply.status(404).send({ error: 'Usuario no encontrado para eliminar.' });
+      }
+
+      await prisma.$transaction([
+        prisma.fcmToken.deleteMany({ where: { userId: id } }),
+        prisma.userLink.deleteMany({ where: { OR: [{ sourceId: id }, { targetId: id }] } }),
+        prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: id }, { receiverId: id }] } }),
+        prisma.subscriptionPayment.deleteMany({ where: { userId: id } }),
+        prisma.payment.updateMany({ where: { userId: id }, data: { userId: null } }),
+        prisma.device.updateMany({ where: { userId: id }, data: { userId: null } }),
+        prisma.verificationCode.deleteMany({ where: { email: user.email } }),
+        prisma.user.delete({ where: { id } })
+      ]);
+
       return reply.status(204).send();
     } catch (error) {
       logger.error('Error deleting app user:', error);
-      return reply.status(404).send({ error: 'No se pudo eliminar el usuario.' });
+      return reply.status(500).send({ error: 'No se pudo eliminar el usuario de la base de datos.' });
     }
   }
 }
