@@ -19,7 +19,11 @@ import {
   registerUserSchema,
   verifyEmailSchema,
   resendOtpSchema,
-  googleLoginSchema
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  googleLoginSchema,
+  createAppUserSchema,
+  updateAppUserSchema
 } from '../dtos/schemas.js';
 
 export default async function routes(fastify: FastifyInstance) {
@@ -50,14 +54,19 @@ export default async function routes(fastify: FastifyInstance) {
   fastify.patch('/admin/users/:id', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN'), validate(updateAdminUserSchema)] }, AdminController.updateUser);
   fastify.delete('/admin/users/:id', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN')] }, AdminController.deleteUser);
 
-  // App User Management
+  // App User Management (Drivers / Profiles)
   fastify.get('/admin/app-users', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, AdminController.getAppUsers);
+  fastify.post('/admin/app-users', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN'), validate(createAppUserSchema)] }, AdminController.createAppUser);
+  fastify.patch('/admin/app-users/:id', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN'), validate(updateAppUserSchema)] }, AdminController.updateAppUser);
   fastify.patch('/admin/app-users/:id/subscription', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, AdminController.updateAppUserSubscription);
+  fastify.delete('/admin/app-users/:id', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, AdminController.deleteAppUser);
 
   // User routes
   fastify.post('/users/register', { preHandler: validate(registerUserSchema) }, UserController.register);
   fastify.post('/users/verify-email', { preHandler: validate(verifyEmailSchema) }, UserController.verifyEmail);
   fastify.post('/users/resend-otp', { preHandler: validate(resendOtpSchema) }, UserController.resendOTP);
+  fastify.post('/users/forgot-password', { preHandler: validate(forgotPasswordSchema) }, UserController.forgotPassword);
+  fastify.post('/users/reset-password', { preHandler: validate(resetPasswordSchema) }, UserController.resetPassword);
   fastify.post('/users/login', UserController.login);
   fastify.post('/users/google-login', { preHandler: validate(googleLoginSchema) }, UserController.googleLogin);
   fastify.post('/users/start-trial', { preHandler: authenticateJWT }, UserController.startTrial);

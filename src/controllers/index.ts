@@ -374,13 +374,91 @@ export class AdminController {
       return reply.status(404).send({ error: 'Usuario no encontrado para gestionar suscripción.' });
     }
   }
+
+  static async createAppUser(req: FastifyRequest, reply: FastifyReply) {
+    const { name, email, password, phone, businessType, isSubscribed } = req.body as any;
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (existingUser) {
+        return reply.status(400).send({ error: 'Ya existe un usuario registrado con este correo.' });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      let notificationCode = generateNotificationCode();
+      let codeExists = true;
+      while (codeExists) {
+        notificationCode = generateNotificationCode();
+        const existingCode = await prisma.user.findFirst({ where: { notificationCode } });
+        codeExists = !!existingCode;
+      }
+
+      const user = await prisma.user.create({
+        data: {
+          name,
+          email: cleanEmail,
+          password: hashedPassword,
+          phone,
+          businessType,
+          notificationCode,
+          isVerified: true,
+          isSubscribed: isSubscribed ?? true,
+          subscriptionStartDate: isSubscribed ? new Date() : undefined,
+          subscriptionEndDate: isSubscribed ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : undefined,
+        }
+      });
+
+      return reply.status(201).send(user);
+    } catch (error) {
+      logger.error('Error creating app user:', error);
+      return reply.status(500).send({ error: 'No se pudo crear el usuario.' });
+    }
+  }
+
+  static async updateAppUser(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = req.params as { id: string };
+    const { name, email, phone, businessType, isSubscribed, subscriptionPlan } = req.body as any;
+    try {
+      const cleanEmail = email ? email.trim().toLowerCase() : undefined;
+      const user = await prisma.user.update({
+        where: { id },
+        data: {
+          name: name || undefined,
+          email: cleanEmail || undefined,
+          phone: phone !== undefined ? phone : undefined,
+          businessType: businessType !== undefined ? businessType : undefined,
+          isSubscribed: isSubscribed !== undefined ? isSubscribed : undefined,
+          subscriptionPlan: subscriptionPlan !== undefined ? subscriptionPlan : undefined,
+          subscriptionStartDate: isSubscribed ? new Date() : undefined,
+          subscriptionEndDate: isSubscribed ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : undefined,
+        }
+      });
+
+      return reply.send(user);
+    } catch (error) {
+      logger.error('Error updating app user:', error);
+      return reply.status(404).send({ error: 'Usuario no encontrado para actualizar.' });
+    }
+  }
+
+  static async deleteAppUser(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = req.params as { id: string };
+    try {
+      await prisma.user.delete({ where: { id } });
+      return reply.status(204).send();
+    } catch (error) {
+      logger.error('Error deleting app user:', error);
+      return reply.status(404).send({ error: 'No se pudo eliminar el usuario.' });
+    }
+  }
 }
 
 export class UserController {
   static async register(req: FastifyRequest, reply: FastifyReply) {
     const { name, email, password, phone, businessType } = req.body as any;
     try {
-      const existingUser = await prisma.user.findUnique({ where: { email } });
+      const cleanEmail = email?.toString().trim().toLowerCase();
+      const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
 
       if (existingUser) {
         if (existingUser.isVerified) {
@@ -401,7 +479,7 @@ export class UserController {
       }
 
       const user = await prisma.user.upsert({
-        where: { email },
+        where: { email: cleanEmail },
         update: {
           name,
           password: hashedPassword,
@@ -411,7 +489,7 @@ export class UserController {
         },
         create: {
           name,
-          email,
+          email: cleanEmail,
           password: hashedPassword,
           phone,
           businessType,
@@ -421,22 +499,22 @@ export class UserController {
       });
 
       // TRUCO PARA EL TESTER DE GOOGLE PLAY: Código fijo si es el email de prueba
-      const code = (email === 'tester@novabytexrj.com') ? '123456' : generateOTP();
+      const code = (cleanEmail === 'tester@novabytexrj.com') ? '123456' : generateOTP();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await prisma.verificationCode.create({
         data: {
-          email,
+          email: cleanEmail,
           code,
           expiresAt,
         },
       });
 
-      logger.info(`[SEGURIDAD] OTP para ${email}: ${code}`);
+      logger.info(`[SEGURIDAD] OTP para ${cleanEmail}: ${code}`);
 
       // Enviamos el correo en segundo plano (sin 'await') para evitar bloqueos/timeouts
-      MailService.sendOTP(email, code).catch(err => {
-        logger.error(`Error enviando correo a ${email}:`, err);
+      MailService.sendOTP(cleanEmail, code).catch(err => {
+        logger.error(`Error enviando correo a ${cleanEmail}:`, err);
       });
 
       // Devolvemos el perfil del usuario (aunque no verificado) para que el frontend no falle al parsear
@@ -533,31 +611,101 @@ export class UserController {
   static async resendOTP(req: FastifyRequest, reply: FastifyReply) {
     const { email } = req.body as { email: string };
     try {
-      const user = await prisma.user.findUnique({ where: { email } });
+      const cleanEmail = email?.toString().trim().toLowerCase();
+      const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
       if (!user) return reply.status(404).send({ error: 'El correo ingresado no está registrado.' });
       if (user.isVerified) return reply.status(400).send({ error: 'Este correo electrónico ya ha sido verificado.' });
 
       // Eliminamos códigos anteriores para evitar confusiones
-      await prisma.verificationCode.deleteMany({ where: { email } });
+      await prisma.verificationCode.deleteMany({ where: { email: cleanEmail } });
 
-      const code = (email === 'tester@novabytexrj.com') ? '123456' : generateOTP();
+      const code = (cleanEmail === 'tester@novabytexrj.com') ? '123456' : generateOTP();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // Aumentamos a 15 min para dar margen
 
       await prisma.verificationCode.create({
-        data: { email, code, expiresAt }
+        data: { email: cleanEmail, code, expiresAt }
       });
 
-      logger.info(`[RE-ENVÍO] Nuevo OTP para ${email}: ${code}`);
+      logger.info(`[RE-ENVÍO] Nuevo OTP para ${cleanEmail}: ${code}`);
 
-      if (email !== 'tester@novabytexrj.com') {
+      if (cleanEmail !== 'tester@novabytexrj.com') {
         // Envío asíncrono
-        MailService.sendOTP(email, code).catch(err => logger.error('Error re-enviando OTP:', err));
+        MailService.sendOTP(cleanEmail, code).catch(err => logger.error('Error re-enviando OTP:', err));
       }
 
       return reply.send({ message: 'Se ha enviado un nuevo código de verificación a tu correo.' });
     } catch (error) {
       logger.error('Error resending OTP:', error);
       return reply.status(500).send({ error: 'No se pudo reenviar el código. Inténtalo más tarde.' });
+    }
+  }
+
+  static async forgotPassword(req: FastifyRequest, reply: FastifyReply) {
+    const { email } = req.body as { email: string };
+    try {
+      const cleanEmail = email?.toString().trim().toLowerCase();
+      const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+
+      if (!user) {
+        return reply.send({ message: 'Si el correo ingresado está registrado, se ha enviado un código de recuperación.' });
+      }
+
+      await prisma.verificationCode.deleteMany({ where: { email: cleanEmail } });
+
+      const code = (cleanEmail === 'tester@novabytexrj.com') ? '123456' : generateOTP();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      await prisma.verificationCode.create({
+        data: { email: cleanEmail, code, expiresAt }
+      });
+
+      logger.info(`[RECUPERACIÓN] OTP enviado para ${cleanEmail}: ${code}`);
+
+      if (cleanEmail !== 'tester@novabytexrj.com') {
+        MailService.sendPasswordResetOTP(cleanEmail, code).catch(err => {
+          logger.error('Error enviando correo de recuperación:', err);
+        });
+      }
+
+      return reply.send({ message: 'Se ha enviado un código de recuperación a tu correo electrónico.' });
+    } catch (error) {
+      logger.error('Error in forgotPassword:', error);
+      return reply.status(500).send({ error: 'No se pudo procesar la solicitud de recuperación.' });
+    }
+  }
+
+  static async resetPassword(req: FastifyRequest, reply: FastifyReply) {
+    const { email, code, newPassword } = req.body as any;
+    try {
+      const cleanEmail = email?.toString().trim().toLowerCase();
+      const cleanCode = code?.toString().trim();
+
+      const verification = await prisma.verificationCode.findFirst({
+        where: { email: cleanEmail, code: cleanCode },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      if (!verification) {
+        return reply.status(400).send({ error: 'El código de verificación es incorrecto.' });
+      }
+
+      if (verification.expiresAt < new Date()) {
+        return reply.status(400).send({ error: 'El código de verificación ha expirado.' });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      await prisma.user.update({
+        where: { email: cleanEmail },
+        data: { password: hashedPassword }
+      });
+
+      await prisma.verificationCode.deleteMany({ where: { email: cleanEmail } });
+
+      return reply.send({ message: 'Tu contraseña ha sido restablecida con éxito. Ya puedes iniciar sesión.' });
+    } catch (error) {
+      logger.error('Error in resetPassword:', error);
+      return reply.status(500).send({ error: 'Error al actualizar la contraseña.' });
     }
   }
 

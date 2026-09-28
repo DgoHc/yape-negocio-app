@@ -54,6 +54,20 @@ export const resendOtpSchema = z.object({
   }),
 });
 
+export const forgotPasswordSchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+  }),
+});
+
+export const resetPasswordSchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+    code: z.string().length(6),
+    newPassword: z.string().min(6),
+  }),
+});
+
 export const googleLoginSchema = z.object({
   body: z.object({
     email: z.string().email(),
@@ -88,5 +102,30 @@ export const updateAdminUserSchema = z.object({
   body: z.object({
     role: z.enum(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR']).optional(),
     status: z.enum(['ACTIVE', 'SUSPENDED']).optional(),
+  }),
+});
+
+export const createAppUserSchema = z.object({
+  body: z.object({
+    name: z.string().min(2),
+    email: z.string().email(),
+    password: z.string().min(6),
+    phone: z.string().optional(),
+    businessType: z.string().optional(),
+    isSubscribed: z.boolean().optional().default(true),
+  }),
+});
+
+export const updateAppUserSchema = z.object({
+  params: z.object({
+    id: z.string().uuid(),
+  }),
+  body: z.object({
+    name: z.string().optional(),
+    email: z.string().email().optional(),
+    phone: z.string().optional(),
+    businessType: z.string().optional(),
+    isSubscribed: z.boolean().optional(),
+    subscriptionPlan: z.string().optional(),
   }),
 });
