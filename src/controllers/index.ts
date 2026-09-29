@@ -872,17 +872,36 @@ export class UserController {
 
   static async startTrial(req: FastifyRequest, reply: FastifyReply) {
     const userId = (req as any).user?.id;
-    logger.info(`>>> [DEBUG] Start trial request for user ID: ${userId}`);
+    const { deviceId, uuid } = (req.body as any) || {};
+    const targetUuid = deviceId || uuid;
+
+    logger.info(`>>> [DEBUG] Start trial request for user ID: ${userId}, device: ${targetUuid}`);
     try {
       if (!userId) {
         logger.warn('>>> [DEBUG] startTrial failed: No userId in request');
         return reply.status(401).send({ error: 'Usuario no autenticado.' });
       }
 
-      // Verificar si el usuario ya tiene una prueba o suscripción
       const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+
+      // Punto 04: Verificar si este dispositivo físico (UUID / Device ID) ya usó la prueba gratuita
+      if (targetUuid) {
+        const deviceTrial = await prisma.user.findFirst({
+          where: {
+            devices: { some: { uuid: targetUuid } },
+            trialEndDate: { not: null },
+            id: { not: userId }
+          }
+        });
+        if (deviceTrial) {
+          return reply.status(400).send({
+            error: 'Este teléfono ya utilizó un periodo de prueba gratuita anteriormente. Por favor adquiere una suscripción.'
+          });
+        }
+      }
+
       if (currentUser?.trialEndDate) {
-        logger.info(`>>> [DEBUG] User ${userId} already has a trial. Overwriting...`);
+        logger.info(`>>> [DEBUG] User ${userId} already has trialEndDate: ${currentUser.trialEndDate}`);
       }
 
       const user = await prisma.user.update({
