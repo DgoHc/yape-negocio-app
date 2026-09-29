@@ -27,7 +27,7 @@ export const paymentSchema = z.object({
 export const adminLoginSchema = z.object({
   body: z.object({
     username: z.string().min(3),
-    pin: z.string().min(4), // Permitir PINs de cualquier longitud mayor a 4
+    pin: z.string().min(4),
   }),
 });
 
@@ -78,7 +78,7 @@ export const googleLoginSchema = z.object({
 
 export const updateDeviceSchema = z.object({
   params: z.object({
-    id: z.string().uuid(),
+    id: z.string().min(1),
   }),
   body: z.object({
     isApproved: z.boolean().optional(),
@@ -97,7 +97,7 @@ export const adminUserSchema = z.object({
 
 export const updateAdminUserSchema = z.object({
   params: z.object({
-    id: z.string().uuid(),
+    id: z.string().min(1),
   }),
   body: z.object({
     role: z.enum(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR']).optional(),
@@ -113,19 +113,21 @@ export const createAppUserSchema = z.object({
     phone: z.string().optional(),
     businessType: z.string().optional(),
     isSubscribed: z.boolean().optional().default(true),
+    days: z.number().optional(),
   }),
 });
 
 export const updateAppUserSchema = z.object({
   params: z.object({
-    id: z.string().uuid(),
+    id: z.string().min(1),
   }),
   body: z.object({
     name: z.string().optional(),
-    email: z.string().email().optional(),
+    email: z.string().email().or(z.literal('')).optional(),
     phone: z.string().optional(),
     businessType: z.string().optional(),
     isSubscribed: z.boolean().optional(),
     subscriptionPlan: z.string().optional(),
+    days: z.number().optional(),
   }),
 });
