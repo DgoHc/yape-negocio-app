@@ -461,21 +461,28 @@ export class AdminController {
   static async deleteAppUser(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
     try {
-      const user = await prisma.user.findUnique({ where: { id } });
+      let user = await prisma.user.findUnique({ where: { id } });
+      if (!user && id.includes('@')) {
+        user = await prisma.user.findUnique({ where: { email: id.trim().toLowerCase() } });
+      }
+
       if (!user) {
         return reply.status(404).send({ error: 'Usuario no encontrado para eliminar.' });
       }
 
-      await prisma.$transaction([
-        prisma.fcmToken.deleteMany({ where: { userId: id } }),
-        prisma.userLink.deleteMany({ where: { OR: [{ sourceId: id }, { targetId: id }] } }),
-        prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: id }, { receiverId: id }] } }),
-        prisma.subscriptionPayment.deleteMany({ where: { userId: id } }),
-        prisma.payment.updateMany({ where: { userId: id }, data: { userId: null } }),
-        prisma.device.updateMany({ where: { userId: id }, data: { userId: null } }),
-        prisma.verificationCode.deleteMany({ where: { email: user.email } }),
-        prisma.user.delete({ where: { id } })
-      ]);
+      const targetId = user.id;
+
+      await prisma.fcmToken.deleteMany({ where: { userId: targetId } });
+      await prisma.userLink.deleteMany({ where: { OR: [{ sourceId: targetId }, { targetId: targetId }] } });
+      await prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: targetId }, { receiverId: targetId }] } });
+      await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } });
+      await prisma.payment.updateMany({ where: { userId: targetId }, data: { userId: null } });
+      await prisma.device.updateMany({ where: { userId: targetId }, data: { userId: null } });
+      if (user.email) {
+        await prisma.verificationCode.deleteMany({ where: { email: user.email } });
+      }
+
+      await prisma.user.delete({ where: { id: targetId } });
 
       return reply.status(204).send();
     } catch (error) {
