@@ -1152,24 +1152,40 @@ export class NotificationController {
         return reply.status(404).send({ error: 'La solicitud de vinculación no existe o no te pertenece.' });
       }
 
-      if (request.status !== 'PENDING') {
-        return reply.status(400).send({ error: 'Esta solicitud ya ha sido procesada.' });
+      if (request.status === 'ACCEPTED') {
+        return reply.send({ message: 'Solicitud de vinculación ya fue aceptada.' });
       }
 
-      await prisma.$transaction([
-        prisma.linkRequest.update({
-          where: { id: requestId },
-          data: { status: 'ACCEPTED' }
-        }),
-        prisma.userLink.create({
+      await prisma.linkRequest.update({
+        where: { id: requestId },
+        data: { status: 'ACCEPTED' }
+      });
+
+      const existingLink = await prisma.userLink.findFirst({
+        where: {
+          OR: [
+            { sourceId: request.senderId, targetId: request.receiverId },
+            { sourceId: request.receiverId, targetId: request.senderId }
+          ]
+        }
+      });
+
+      if (existingLink) {
+        await prisma.userLink.update({
+          where: { id: existingLink.id },
+          data: { status: 'active' }
+        });
+      } else {
+        await prisma.userLink.create({
           data: {
             sourceId: request.senderId,
-            targetId: request.receiverId
+            targetId: request.receiverId,
+            status: 'active'
           }
-        })
-      ]);
+        });
+      }
 
-      return reply.send({ message: 'Solicitud de vinculación aceptada.' });
+      return reply.send({ message: 'Solicitud de vinculación aceptada exitosamente.' });
     } catch (error) {
       logger.error('Error accepting link request:', error);
       return reply.status(500).send({ error: 'Error al aceptar la solicitud de vinculación.' });
