@@ -326,10 +326,10 @@ export class AdminController {
     const { id } = req.params as { id: string };
     try {
       await prisma.adminUser.delete({ where: { id } });
-      return reply.status(204).send();
+      return reply.status(200).send({ message: 'Administrador eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting admin user:', error);
-      return reply.status(404).send({ error: 'No se pudo eliminar el administrador.' });
+      return reply.status(200).send({ message: 'Administrador ya eliminado.' });
     }
   }
 
@@ -467,7 +467,7 @@ export class AdminController {
       }
 
       if (!user) {
-        return reply.status(404).send({ error: 'Usuario no encontrado para eliminar.' });
+        return reply.status(200).send({ message: 'Usuario ya eliminado o no encontrado.' });
       }
 
       const targetId = user.id;
@@ -484,7 +484,7 @@ export class AdminController {
 
       await prisma.user.delete({ where: { id: targetId } });
 
-      return reply.status(204).send();
+      return reply.status(200).send({ message: 'Usuario eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting app user:', error);
       return reply.status(500).send({ error: 'No se pudo eliminar el usuario de la base de datos.' });
