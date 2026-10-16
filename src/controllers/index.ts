@@ -1214,18 +1214,6 @@ export class NotificationController {
     }
   }
 
-      await prisma.linkRequest.update({
-        where: { id: requestId },
-        data: { status: 'REJECTED' }
-      });
-
-      return reply.send({ message: 'Solicitud de vinculación rechazada.' });
-    } catch (error) {
-      logger.error('Error rejecting link request:', error);
-      return reply.status(500).send({ error: 'Error al rechazar la solicitud de vinculación.' });
-    }
-  }
-
   static async getLinkedUsers(req: FastifyRequest, reply: FastifyReply) {
     try {
       const userId = (req as any).user.id;
