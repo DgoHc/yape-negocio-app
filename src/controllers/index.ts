@@ -1362,7 +1362,9 @@ export class NotificationController {
             { sourceId: { in: idsToMatch } },
             { targetId: { in: idsToMatch } }
           ],
-          status: 'active'
+          NOT: {
+            status: 'REJECTED'
+          }
         },
         include: {
           source: { select: { id: true, name: true, email: true, notificationCode: true } },
