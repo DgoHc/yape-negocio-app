@@ -505,13 +505,20 @@ export class AdminController {
       }
 
       const targetId = user.id;
+      const idsToDelete = [
+        targetId,
+        ...(user.email ? [user.email, user.email.toLowerCase()] : []),
+        ...(user.notificationCode ? [user.notificationCode] : [])
+      ];
 
-      try { await prisma.fcmToken.deleteMany({ where: { userId: targetId } }); } catch (_) {}
-      try { await prisma.userLink.deleteMany({ where: { OR: [{ sourceId: targetId }, { targetId: targetId }] } }); } catch (_) {}
-      try { await prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: targetId }, { receiverId: targetId }] } }); } catch (_) {}
-      try { await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } }); } catch (_) {}
-      try { await prisma.payment.updateMany({ where: { userId: targetId }, data: { userId: null } }); } catch (_) {}
-      try { await prisma.device.updateMany({ where: { userId: targetId }, data: { userId: null } }); } catch (_) {}
+      try { await prisma.fcmToken.deleteMany({ where: { userId: { in: idsToDelete } } }); } catch (_) {}
+      try { await prisma.userLink.deleteMany({ where: { OR: [{ sourceId: { in: idsToDelete } }, { targetId: { in: idsToDelete } }] } }); } catch (_) {}
+      try { await prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: { in: idsToDelete } }, { receiverId: { in: idsToDelete } }] } }); } catch (_) {}
+      try { await prisma.subscriptionPayment.deleteMany({ where: { userId: { in: idsToDelete } } }); } catch (_) {}
+      try { await prisma.payment.deleteMany({ where: { userId: { in: idsToDelete } } }); } catch (_) {}
+      try { await prisma.payment.updateMany({ where: { userId: { in: idsToDelete } }, data: { userId: null } }); } catch (_) {}
+      try { await prisma.device.deleteMany({ where: { userId: { in: idsToDelete } } }); } catch (_) {}
+      try { await prisma.device.updateMany({ where: { userId: { in: idsToDelete } }, data: { userId: null } }); } catch (_) {}
       if (user.email) {
         try { await prisma.verificationCode.deleteMany({ where: { email: user.email } }); } catch (_) {}
       }
@@ -1205,9 +1212,28 @@ export class NotificationController {
         return reply.send({ message: 'Solicitud ya procesada o aceptada.' });
       }
 
-      if (request.status === 'ACCEPTED') {
-        return reply.send({ message: 'Solicitud de vinculación ya fue aceptada.' });
-      }
+      const senderUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: request.senderId },
+            { email: request.senderId.toLowerCase() },
+            { notificationCode: request.senderId }
+          ]
+        }
+      });
+
+      const receiverUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: request.receiverId },
+            { email: request.receiverId.toLowerCase() },
+            { notificationCode: request.receiverId }
+          ]
+        }
+      });
+
+      const sourceId = senderUser ? senderUser.id : request.senderId;
+      const targetId = receiverUser ? receiverUser.id : request.receiverId;
 
       await prisma.linkRequest.update({
         where: { id: requestId },
@@ -1217,8 +1243,8 @@ export class NotificationController {
       const existingLink = await prisma.userLink.findFirst({
         where: {
           OR: [
-            { sourceId: request.senderId, targetId: request.receiverId },
-            { sourceId: request.receiverId, targetId: request.senderId }
+            { sourceId, targetId },
+            { sourceId: targetId, targetId: sourceId }
           ]
         }
       });
@@ -1231,8 +1257,8 @@ export class NotificationController {
       } else {
         await prisma.userLink.create({
           data: {
-            sourceId: request.senderId,
-            targetId: request.receiverId,
+            sourceId,
+            targetId,
             status: 'active'
           }
         });
