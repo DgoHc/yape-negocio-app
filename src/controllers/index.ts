@@ -510,8 +510,8 @@ export class AdminController {
       try { await prisma.userLink.deleteMany({ where: { OR: [{ sourceId: targetId }, { targetId: targetId }] } }); } catch (_) {}
       try { await prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: targetId }, { receiverId: targetId }] } }); } catch (_) {}
       try { await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } }); } catch (_) {}
-      try { await prisma.payment.deleteMany({ where: { userId: targetId } }); } catch (_) {}
-      try { await prisma.device.deleteMany({ where: { userId: targetId } }); } catch (_) {}
+      try { await prisma.payment.updateMany({ where: { userId: targetId }, data: { userId: null } }); } catch (_) {}
+      try { await prisma.device.updateMany({ where: { userId: targetId }, data: { userId: null } }); } catch (_) {}
       if (user.email) {
         try { await prisma.verificationCode.deleteMany({ where: { email: user.email } }); } catch (_) {}
       }
