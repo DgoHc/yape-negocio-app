@@ -1112,13 +1112,36 @@ export class NotificationController {
   static async sendLinkRequest(req: FastifyRequest, reply: FastifyReply) {
     try {
       const { code } = req.body as { code: string };
-      const senderId = (req as any).user.id;
+      const authUser = (req as any).user;
+      const cleanCode = (code || '').trim();
 
-      const receiver = await prisma.user.findUnique({
-        where: { notificationCode: code }
+      if (!cleanCode) {
+        return reply.status(400).send({ error: 'Debes ingresar un código o correo de socio.' });
+      }
+
+      const senderUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: authUser.id },
+            ...(authUser.email ? [{ email: authUser.email.toLowerCase() }] : [])
+          ]
+        }
       });
+      const senderId = senderUser ? senderUser.id : authUser.id;
+
+      const receiver = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { notificationCode: cleanCode },
+            { email: cleanCode.toLowerCase() },
+            { id: cleanCode },
+            { name: { contains: cleanCode, mode: 'insensitive' } }
+          ]
+        }
+      });
+
       if (!receiver) {
-        return reply.status(404).send({ error: 'El usuario al que intentas vincularte no existe.' });
+        return reply.status(404).send({ error: 'El socio al que intentas vincularte no existe.' });
       }
 
       if (receiver.id === senderId) {
@@ -1134,7 +1157,7 @@ export class NotificationController {
         }
       });
       if (existingLink) {
-        return reply.status(400).send({ error: 'Ya estás vinculado con este usuario.' });
+        return reply.status(400).send({ error: 'Ya estás vinculado con este socio.' });
       }
 
       const existingRequest = await prisma.linkRequest.findFirst({
@@ -1150,7 +1173,10 @@ export class NotificationController {
       }
 
       const request = await prisma.linkRequest.create({
-        data: { senderId, receiverId: receiver.id }
+        data: {
+          senderId,
+          receiverId: receiver.id
+        }
       });
 
       return reply.status(201).send(request);
