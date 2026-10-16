@@ -506,24 +506,23 @@ export class AdminController {
       const targetId = user.id;
       const userEmail = user.email ? user.email.toLowerCase() : '';
 
-      try { await prisma.$executeRawUnsafe('UPDATE "Payment" SET "userId" = NULL WHERE "userId" = $1', targetId); } catch (_) {}
-      try { await prisma.$executeRawUnsafe('UPDATE "Device" SET "userId" = NULL WHERE "userId" = $1', targetId); } catch (_) {}
-      try { await prisma.$executeRawUnsafe('DELETE FROM "FcmToken" WHERE "userId" = $1', targetId); } catch (_) {}
-      try { await prisma.$executeRawUnsafe('DELETE FROM "UserLink" WHERE "sourceId" = $1 OR "targetId" = $1', targetId); } catch (_) {}
-      try { await prisma.$executeRawUnsafe('DELETE FROM "LinkRequest" WHERE "senderId" = $1 OR "receiverId" = $1', targetId); } catch (_) {}
-      try { await prisma.$executeRawUnsafe('DELETE FROM "SubscriptionPayment" WHERE "userId" = $1', targetId); } catch (_) {}
+      // Clean all foreign keys cleanly using standard Prisma queries
+      await prisma.fcmToken.deleteMany({ where: { userId: targetId } });
+      await prisma.userLink.deleteMany({ where: { OR: [{ sourceId: targetId }, { targetId: targetId }, ...(userEmail ? [{ sourceId: userEmail }, { targetId: userEmail }] : [])] } });
+      await prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: targetId }, { receiverId: targetId }, ...(userEmail ? [{ senderId: userEmail }, { receiverId: userEmail }] : [])] } });
+      await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } });
+      await prisma.payment.deleteMany({ where: { userId: targetId } });
+      await prisma.device.deleteMany({ where: { userId: targetId } });
       if (userEmail) {
-        try { await prisma.$executeRawUnsafe('DELETE FROM "UserLink" WHERE "sourceId" = $1 OR "targetId" = $1', userEmail); } catch (_) {}
-        try { await prisma.$executeRawUnsafe('DELETE FROM "LinkRequest" WHERE "senderId" = $1 OR "receiverId" = $1', userEmail); } catch (_) {}
-        try { await prisma.$executeRawUnsafe('DELETE FROM "VerificationCode" WHERE "email" = $1', userEmail); } catch (_) {}
+        await prisma.verificationCode.deleteMany({ where: { email: userEmail } });
       }
 
-      await prisma.$executeRawUnsafe('DELETE FROM "User" WHERE "id" = $1', targetId);
+      await prisma.user.delete({ where: { id: targetId } });
 
       return reply.status(200).send({ message: 'Usuario eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting app user:', error);
-      return reply.status(500).send({ error: 'No se pudo borrar el usuario de la base de datos.' });
+      return reply.status(500).send({ error: 'Error al borrar el usuario de la base de datos.' });
     }
   }
 }
@@ -1256,56 +1255,43 @@ export class NotificationController {
         }
       });
 
-      if (!senderUser) {
-        try {
-          senderUser = await prisma.user.create({
-            data: {
-              id: request.senderId,
-              name: request.senderId,
-              email: request.senderId.includes('@') ? request.senderId.toLowerCase() : `${request.senderId.toLowerCase()}@sonopay.app`,
-              password: 'linked_user_placeholder_password'
-            }
-          });
-        } catch (_) {
-          senderUser = await prisma.user.findFirst({ where: { email: request.senderId.toLowerCase() } });
-        }
-      }
-
-      if (!receiverUser) {
-        try {
-          receiverUser = await prisma.user.create({
-            data: {
-              id: request.receiverId,
-              name: request.receiverId,
-              email: request.receiverId.includes('@') ? request.receiverId.toLowerCase() : `${request.receiverId.toLowerCase()}@sonopay.app`,
-              password: 'linked_user_placeholder_password'
-            }
-          });
-        } catch (_) {
-          receiverUser = await prisma.user.findFirst({ where: { email: request.receiverId.toLowerCase() } });
-        }
-      }
-
       const sourceId = senderUser ? senderUser.id : request.senderId;
       const targetId = receiverUser ? receiverUser.id : (authUser?.id || request.receiverId);
 
-      try {
-        await prisma.$executeRawUnsafe(
-          'DELETE FROM "LinkRequest" WHERE "id" = $1 OR ("senderId" = $2 AND "receiverId" = $3) OR ("senderId" = $3 AND "receiverId" = $2)',
-          requestId,
-          sourceId,
-          targetId
-        );
-      } catch (_) {}
+      await prisma.linkRequest.deleteMany({
+        where: {
+          OR: [
+            { id: requestId },
+            { senderId: sourceId, receiverId: targetId },
+            { senderId: targetId, receiverId: sourceId },
+            { senderId: request.senderId, receiverId: request.receiverId },
+            { senderId: request.receiverId, receiverId: request.senderId }
+          ]
+        }
+      });
 
-      try {
-        await prisma.$executeRawUnsafe(
-          'INSERT INTO "UserLink" ("id", "sourceId", "targetId", "status", "linkedAt", "updatedAt") VALUES (gen_random_uuid()::text, $1, $2, \'active\', NOW(), NOW()) ON CONFLICT ("sourceId", "targetId") DO UPDATE SET "status" = \'active\', "updatedAt" = NOW()',
-          sourceId,
-          targetId
-        );
-      } catch (err) {
-        logger.error('Raw SQL UserLink insert error:', err);
+      const existingLink = await prisma.userLink.findFirst({
+        where: {
+          OR: [
+            { sourceId, targetId },
+            { sourceId: targetId, targetId: sourceId }
+          ]
+        }
+      });
+
+      if (existingLink) {
+        await prisma.userLink.update({
+          where: { id: existingLink.id },
+          data: { status: 'active' }
+        });
+      } else {
+        await prisma.userLink.create({
+          data: {
+            sourceId,
+            targetId,
+            status: 'active'
+          }
+        });
       }
 
       return reply.send({ message: 'Solicitud de vinculación aceptada exitosamente.' });
