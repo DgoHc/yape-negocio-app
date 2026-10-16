@@ -360,9 +360,21 @@ export class AdminController {
     const { id } = req.params as { id: string };
     const { isSubscribed, days } = req.body as { isSubscribed: boolean; days?: number };
     try {
-      const user = await prisma.user.findUnique({ where: { id } });
+      let user = await prisma.user.findUnique({ where: { id } });
+      if (!user) {
+        user = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { email: id.trim().toLowerCase() },
+              { uuid: id },
+              { notificationCode: id }
+            ]
+          }
+        });
+      }
       if (!user) return reply.status(404).send({ error: 'Usuario no encontrado.' });
 
+      const targetId = user.id;
       const durationDays = days && days > 0 ? days : 30;
       const subscriptionStartDate = isSubscribed ? new Date() : user.subscriptionStartDate;
       const subscriptionEndDate = isSubscribed
@@ -370,7 +382,7 @@ export class AdminController {
         : new Date(Date.now() - 1000); // Expirado inmediatamente si se suspende
 
       const updatedUser = await prisma.user.update({
-        where: { id },
+        where: { id: targetId },
         data: {
           isSubscribed,
           subscriptionStartDate,
@@ -431,11 +443,26 @@ export class AdminController {
     const { id } = req.params as { id: string };
     const { name, email, phone, businessType, isSubscribed, subscriptionPlan, days } = req.body as any;
     try {
+      let user = await prisma.user.findUnique({ where: { id } });
+      if (!user) {
+        user = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { email: id.trim().toLowerCase() },
+              { uuid: id },
+              { notificationCode: id }
+            ]
+          }
+        });
+      }
+      if (!user) return reply.status(404).send({ error: 'Usuario no encontrado.' });
+
+      const targetId = user.id;
       const cleanEmail = email ? email.trim().toLowerCase() : undefined;
       const durationDays = days && days > 0 ? days : 30;
 
-      const user = await prisma.user.update({
-        where: { id },
+      const updated = await prisma.user.update({
+        where: { id: targetId },
         data: {
           name: name || undefined,
           email: cleanEmail || undefined,
@@ -451,7 +478,7 @@ export class AdminController {
         }
       });
 
-      return reply.send(user);
+      return reply.send(updated);
     } catch (error) {
       logger.error('Error updating app user:', error);
       return reply.status(404).send({ error: 'Usuario no encontrado para actualizar.' });
