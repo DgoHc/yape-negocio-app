@@ -1203,6 +1203,7 @@ export class NotificationController {
   static async acceptLinkRequest(req: FastifyRequest, reply: FastifyReply) {
     try {
       const { requestId } = req.params as { requestId: string };
+      const authUser = (req as any).user;
 
       const request = await prisma.linkRequest.findUnique({
         where: { id: requestId }
@@ -1227,17 +1228,25 @@ export class NotificationController {
           OR: [
             { id: request.receiverId },
             { email: request.receiverId.toLowerCase() },
-            { notificationCode: request.receiverId }
+            { notificationCode: request.receiverId },
+            ...(authUser?.id ? [{ id: authUser.id }] : []),
+            ...(authUser?.email ? [{ email: authUser.email.toLowerCase() }] : [])
           ]
         }
       });
 
       const sourceId = senderUser ? senderUser.id : request.senderId;
-      const targetId = receiverUser ? receiverUser.id : request.receiverId;
+      const targetId = receiverUser ? receiverUser.id : (authUser?.id || request.receiverId);
 
       try {
-        await prisma.linkRequest.delete({
-          where: { id: requestId }
+        await prisma.linkRequest.deleteMany({
+          where: {
+            OR: [
+              { id: requestId },
+              { senderId: sourceId, receiverId: targetId },
+              { senderId: targetId, receiverId: sourceId }
+            ]
+          }
         });
       } catch (_) {}
 
