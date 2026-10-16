@@ -486,9 +486,9 @@ export class AdminController {
   }
 
   static async deleteAppUser(req: FastifyRequest, reply: FastifyReply) {
-    const { id } = req.params as { id: string };
+    const rawId = (req.params as any).id || '';
+    const cleanId = decodeURIComponent(rawId).trim();
     try {
-      const cleanId = id.trim();
       const user = await prisma.user.findFirst({
         where: {
           OR: [
@@ -1155,21 +1155,36 @@ export class NotificationController {
 
   static async getLinkRequests(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const userId = (req as any).user.id;
+      const authUser = (req as any).user;
+      const userId = authUser.id;
+      const userEmail = authUser.email ? authUser.email.toLowerCase() : null;
+
+      const currentUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: userId },
+            ...(userEmail ? [{ email: userEmail }] : [])
+          ]
+        }
+      });
+
+      const actualId = currentUser ? currentUser.id : userId;
+
       const requests = await prisma.linkRequest.findMany({
         where: {
-          OR: [{ senderId: userId }, { receiverId: userId }]
+          OR: [{ senderId: actualId }, { receiverId: actualId }]
         },
         include: {
-          sender: { select: { id: true, name: true, email: true } },
-          receiver: { select: { id: true, name: true, email: true } }
+          sender: { select: { id: true, name: true, email: true, notificationCode: true } },
+          receiver: { select: { id: true, name: true, email: true, notificationCode: true } }
         },
         orderBy: { createdAt: 'desc' }
       });
+
       return reply.send(requests);
     } catch (error) {
       logger.error('Error getting link requests:', error);
-      return reply.status(500).send({ error: 'Error al cargar las solicitudes de vinculación.' });
+      return reply.send([]);
     }
   }
 
@@ -1250,10 +1265,25 @@ export class NotificationController {
 
   static async getLinkedUsers(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const userId = (req as any).user.id;
+      const authUser = (req as any).user;
+      const userId = authUser.id;
+      const userEmail = authUser.email ? authUser.email.toLowerCase() : null;
+
+      const currentUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: userId },
+            ...(userEmail ? [{ email: userEmail }] : [])
+          ]
+        }
+      });
+
+      const actualId = currentUser ? currentUser.id : userId;
+
       const links = await prisma.userLink.findMany({
         where: {
-          OR: [{ sourceId: userId }, { targetId: userId }]
+          OR: [{ sourceId: actualId }, { targetId: actualId }],
+          status: 'active'
         },
         include: {
           source: { select: { id: true, name: true, email: true, notificationCode: true } },
@@ -1261,10 +1291,11 @@ export class NotificationController {
         },
         orderBy: { linkedAt: 'desc' }
       });
+
       return reply.send(links);
     } catch (error) {
       logger.error('Error getting linked users:', error);
-      return reply.status(500).send({ error: 'Error al obtener la lista de usuarios vinculados.' });
+      return reply.send([]);
     }
   }
 
