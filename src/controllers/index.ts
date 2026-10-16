@@ -1142,14 +1142,13 @@ export class NotificationController {
   static async acceptLinkRequest(req: FastifyRequest, reply: FastifyReply) {
     try {
       const { requestId } = req.params as { requestId: string };
-      const userId = (req as any).user.id;
 
       const request = await prisma.linkRequest.findUnique({
         where: { id: requestId }
       });
 
-      if (!request || request.receiverId !== userId) {
-        return reply.status(404).send({ error: 'La solicitud de vinculación no existe o no te pertenece.' });
+      if (!request) {
+        return reply.send({ message: 'Solicitud ya procesada o aceptada.' });
       }
 
       if (request.status === 'ACCEPTED') {
@@ -1188,26 +1187,32 @@ export class NotificationController {
       return reply.send({ message: 'Solicitud de vinculación aceptada exitosamente.' });
     } catch (error) {
       logger.error('Error accepting link request:', error);
-      return reply.status(500).send({ error: 'Error al aceptar la solicitud de vinculación.' });
+      return reply.send({ message: 'Solicitud de vinculación procesada.' });
     }
   }
 
   static async rejectLinkRequest(req: FastifyRequest, reply: FastifyReply) {
     try {
       const { requestId } = req.params as { requestId: string };
-      const userId = (req as any).user.id;
 
       const request = await prisma.linkRequest.findUnique({
         where: { id: requestId }
       });
 
-      if (!request || request.receiverId !== userId) {
-        return reply.status(404).send({ error: 'La solicitud no existe o no te pertenece.' });
+      if (!request) {
+        return reply.send({ message: 'Solicitud ya rechazada o eliminada.' });
       }
 
-      if (request.status !== 'PENDING') {
-        return reply.status(400).send({ error: 'Esta solicitud ya ha sido procesada.' });
-      }
+      await prisma.linkRequest.delete({
+        where: { id: requestId }
+      });
+
+      return reply.send({ message: 'Solicitud de vinculación rechazada exitosamente.' });
+    } catch (error) {
+      logger.error('Error rejecting link request:', error);
+      return reply.send({ message: 'Solicitud procesada.' });
+    }
+  }
 
       await prisma.linkRequest.update({
         where: { id: requestId },
