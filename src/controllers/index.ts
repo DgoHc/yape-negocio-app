@@ -1235,10 +1235,11 @@ export class NotificationController {
       const sourceId = senderUser ? senderUser.id : request.senderId;
       const targetId = receiverUser ? receiverUser.id : request.receiverId;
 
-      await prisma.linkRequest.update({
-        where: { id: requestId },
-        data: { status: 'ACCEPTED' }
-      });
+      try {
+        await prisma.linkRequest.delete({
+          where: { id: requestId }
+        });
+      } catch (_) {}
 
       const existingLink = await prisma.userLink.findFirst({
         where: {
