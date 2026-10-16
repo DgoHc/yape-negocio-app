@@ -506,14 +506,14 @@ export class AdminController {
 
       const targetId = user.id;
 
-      await prisma.fcmToken.deleteMany({ where: { userId: targetId } });
-      await prisma.userLink.deleteMany({ where: { OR: [{ sourceId: targetId }, { targetId: targetId }] } });
-      await prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: targetId }, { receiverId: targetId }] } });
-      await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } });
-      await prisma.payment.updateMany({ where: { userId: targetId }, data: { userId: null } });
-      await prisma.device.updateMany({ where: { userId: targetId }, data: { userId: null } });
+      try { await prisma.fcmToken.deleteMany({ where: { userId: targetId } }); } catch (_) {}
+      try { await prisma.userLink.deleteMany({ where: { OR: [{ sourceId: targetId }, { targetId: targetId }] } }); } catch (_) {}
+      try { await prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: targetId }, { receiverId: targetId }] } }); } catch (_) {}
+      try { await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } }); } catch (_) {}
+      try { await prisma.payment.deleteMany({ where: { userId: targetId } }); } catch (_) {}
+      try { await prisma.device.deleteMany({ where: { userId: targetId } }); } catch (_) {}
       if (user.email) {
-        await prisma.verificationCode.deleteMany({ where: { email: user.email } });
+        try { await prisma.verificationCode.deleteMany({ where: { email: user.email } }); } catch (_) {}
       }
 
       await prisma.user.delete({ where: { id: targetId } });
@@ -1169,10 +1169,15 @@ export class NotificationController {
       });
 
       const actualId = currentUser ? currentUser.id : userId;
+      const idsToMatch = [userId, actualId, ...(userEmail ? [userEmail] : []), ...(currentUser?.email ? [currentUser.email.toLowerCase()] : [])];
 
       const requests = await prisma.linkRequest.findMany({
         where: {
-          OR: [{ senderId: actualId }, { receiverId: actualId }]
+          OR: [
+            { senderId: { in: idsToMatch } },
+            { receiverId: { in: idsToMatch } }
+          ],
+          status: 'PENDING'
         },
         include: {
           sender: { select: { id: true, name: true, email: true, notificationCode: true } },
@@ -1279,10 +1284,14 @@ export class NotificationController {
       });
 
       const actualId = currentUser ? currentUser.id : userId;
+      const idsToMatch = [userId, actualId, ...(userEmail ? [userEmail] : []), ...(currentUser?.email ? [currentUser.email.toLowerCase()] : [])];
 
       const links = await prisma.userLink.findMany({
         where: {
-          OR: [{ sourceId: actualId }, { targetId: actualId }],
+          OR: [
+            { sourceId: { in: idsToMatch } },
+            { targetId: { in: idsToMatch } }
+          ],
           status: 'active'
         },
         include: {
