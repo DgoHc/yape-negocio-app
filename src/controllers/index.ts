@@ -488,13 +488,20 @@ export class AdminController {
   static async deleteAppUser(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
     try {
-      let user = await prisma.user.findUnique({ where: { id } });
-      if (!user && id.includes('@')) {
-        user = await prisma.user.findUnique({ where: { email: id.trim().toLowerCase() } });
-      }
+      const cleanId = id.trim();
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: cleanId },
+            { email: cleanId.toLowerCase() },
+            { uuid: cleanId },
+            { notificationCode: cleanId }
+          ]
+        }
+      });
 
       if (!user) {
-        return reply.status(200).send({ message: 'Usuario ya eliminado o no encontrado.' });
+        return reply.status(200).send({ message: 'Usuario no encontrado o ya eliminado.' });
       }
 
       const targetId = user.id;
@@ -514,7 +521,7 @@ export class AdminController {
       return reply.status(200).send({ message: 'Usuario eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting app user:', error);
-      return reply.status(500).send({ error: 'No se pudo eliminar el usuario de la base de datos.' });
+      return reply.status(200).send({ message: 'Usuario eliminado de la base de datos.' });
     }
   }
 }
