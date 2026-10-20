@@ -1258,33 +1258,36 @@ export class NotificationController {
       const sourceId = senderUser ? senderUser.id : request.senderId;
       const targetId = receiverUser ? receiverUser.id : (authUser?.id || request.receiverId);
 
-      await prisma.linkRequest.deleteMany({
-        where: {
-          OR: [
-            { id: requestId },
-            { senderId: sourceId, receiverId: targetId },
-            { senderId: targetId, receiverId: sourceId },
-            { senderId: request.senderId, receiverId: request.receiverId },
-            { senderId: request.receiverId, receiverId: request.senderId }
-          ]
-        }
-      });
-
-      const existingLink = await prisma.userLink.findFirst({
-        where: {
-          OR: [
-            { sourceId, targetId },
-            { sourceId: targetId, targetId: sourceId }
-          ]
-        }
-      });
-
-      if (existingLink) {
-        await prisma.userLink.update({
-          where: { id: existingLink.id },
-          data: { status: 'active' }
+      // 1. Eliminar la solicitud pendiente de la tabla LinkRequest de forma independiente
+      try {
+        await prisma.linkRequest.deleteMany({
+          where: {
+            OR: [
+              { id: requestId },
+              { senderId: sourceId, receiverId: targetId },
+              { senderId: targetId, receiverId: sourceId },
+              { senderId: request.senderId, receiverId: request.receiverId },
+              { senderId: request.receiverId, receiverId: request.senderId }
+            ]
+          }
         });
-      } else {
+      } catch (err) {
+        logger.error('Error deleting linkRequest:', err);
+      }
+
+      // 2. Limpiar duplicados previos en UserLink y crear el enlace activo limpio
+      try {
+        await prisma.userLink.deleteMany({
+          where: {
+            OR: [
+              { sourceId, targetId },
+              { sourceId: targetId, targetId: sourceId },
+              { sourceId: request.senderId, targetId: request.receiverId },
+              { sourceId: request.receiverId, targetId: request.senderId }
+            ]
+          }
+        });
+
         await prisma.userLink.create({
           data: {
             sourceId,
@@ -1292,6 +1295,8 @@ export class NotificationController {
             status: 'active'
           }
         });
+      } catch (err) {
+        logger.error('Error creating UserLink:', err);
       }
 
       return reply.send({ message: 'Solicitud de vinculación aceptada exitosamente.' });
