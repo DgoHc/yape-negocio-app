@@ -307,8 +307,12 @@ export class AdminController {
       const targetId = user.id;
       const userEmail = user.email ? user.email.toLowerCase() : '';
 
-      try { await prisma.secondaryNumber.deleteMany({ where: { device: { userId: targetId } } }); } catch (_) {}
-      try { await prisma.fcmToken.deleteMany({ where: { userId: targetId } }); } catch (_) {}
+      try {
+        await prisma.secondaryNumber.deleteMany({ where: { device: { userId: targetId } } });
+      } catch (_) {}
+      try {
+        await prisma.fcmToken.deleteMany({ where: { userId: targetId } });
+      } catch (_) {}
       try {
         await prisma.userLink.deleteMany({
           where: {
@@ -331,11 +335,25 @@ export class AdminController {
           }
         });
       } catch (_) {}
-      try { await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } }); } catch (_) {}
-      try { await prisma.payment.updateMany({ where: { userId: targetId }, data: { userId: null } }); } catch (_) {}
-      try { await prisma.device.updateMany({ where: { userId: targetId }, data: { userId: null } }); } catch (_) {}
+      try {
+        await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } });
+      } catch (_) {}
+      try {
+        await prisma.payment.deleteMany({ where: { userId: targetId } });
+      } catch (_) {}
+      try {
+        await prisma.payment.updateMany({ where: { userId: targetId }, data: { userId: null } });
+      } catch (_) {}
+      try {
+        await prisma.device.deleteMany({ where: { userId: targetId } });
+      } catch (_) {}
+      try {
+        await prisma.device.updateMany({ where: { userId: targetId }, data: { userId: null } });
+      } catch (_) {}
       if (userEmail) {
-        try { await prisma.verificationCode.deleteMany({ where: { email: userEmail } }); } catch (_) {}
+        try {
+          await prisma.verificationCode.deleteMany({ where: { email: userEmail } });
+        } catch (_) {}
       }
 
       await prisma.user.delete({ where: { id: targetId } });
