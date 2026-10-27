@@ -46,12 +46,10 @@ export class PaymentController {
     const userId = (req as any).user?.id;
 
     try {
-      const user = await prisma.user.findUnique({ where: { id: userId } });
       const payments = await prisma.payment.findMany({
         where: {
           userId,
           deviceId: deviceId || undefined,
-          ...(user?.historyLastClearedAt ? { createdAt: { gt: user.historyLastClearedAt } } : {})
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -65,11 +63,11 @@ export class PaymentController {
   static async clearHistory(req: FastifyRequest, reply: FastifyReply) {
     const userId = (req as any).user?.id;
     try {
-      const now = new Date();
-      await prisma.user.update({
-        where: { id: userId },
-        data: { historyLastClearedAt: now }
-      });
+      if (userId) {
+        await prisma.payment.deleteMany({
+          where: { userId }
+        });
+      }
       return reply.send({ message: 'Historial de pagos limpiado en el servidor exitosamente.' });
     } catch (error) {
       logger.error('Error clearing payment history on server:', error);
