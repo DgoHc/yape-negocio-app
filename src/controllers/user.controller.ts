@@ -373,27 +373,45 @@ export class UserController {
 
   static async googleLogin(req: FastifyRequest, reply: FastifyReply) {
     const { email, name, googleId } = req.body as any;
-    logger.info(`>>> [GOOGLE] Petición de login para: ${email}`);
+    const cleanEmail = (email || '').toString().trim().toLowerCase();
+    const cleanName = (name || 'Usuario Google').toString().trim();
+    const cleanGoogleId = (googleId || 'GOOGLE_ID').toString().trim();
+
+    logger.info(`>>> [GOOGLE] Petición de login para: ${cleanEmail}`);
 
     try {
-      let user = await prisma.user.findUnique({ where: { email } });
+      if (!cleanEmail) {
+        return reply.status(400).send({ error: 'El correo electrónico de Google es requerido.' });
+      }
+
+      let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
 
       if (!user) {
         logger.info(`>>> [GOOGLE] Usuario nuevo detectable. Creando registro en DB...`);
-        const notificationCode = generateNotificationCode();
+        let notificationCode = generateNotificationCode();
+        let codeExists = true;
+        while (codeExists) {
+          notificationCode = generateNotificationCode();
+          const existingCode = await prisma.user.findFirst({ where: { notificationCode } });
+          codeExists = !!existingCode;
+        }
 
         user = await prisma.user.create({
           data: {
-            email,
-            name,
-            password: await bcrypt.hash(`GOOGLE_AUTH_${googleId}`, 10),
+            email: cleanEmail,
+            name: cleanName,
+            password: await bcrypt.hash(`GOOGLE_AUTH_${cleanGoogleId}`, 10),
             isVerified: true,
             notificationCode,
           }
         });
-        logger.info(`>>> [GOOGLE] Usuario creado con ID: ${user.id}`);
       } else {
-        logger.info(`>>> [GOOGLE] Usuario existente encontrado. Actualizando sesión...`);
+        if (!user.isVerified) {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: { isVerified: true }
+          });
+        }
       }
 
       const token = (req.server as any).jwt.sign(
@@ -401,7 +419,7 @@ export class UserController {
         { expiresIn: '30d' }
       );
 
-      logger.info(`>>> [GOOGLE] Login exitoso para ${email}. Enviando respuesta.`);
+      logger.info(`>>> [GOOGLE] Login exitoso para ${cleanEmail}. Enviando respuesta.`);
       return reply.send({
         id: user.id,
         name: user.name,

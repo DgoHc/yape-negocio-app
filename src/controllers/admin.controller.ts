@@ -307,19 +307,40 @@ export class AdminController {
       const targetId = user.id;
       const userEmail = user.email ? user.email.toLowerCase() : '';
 
-      // Clean all foreign keys cleanly using standard Prisma queries
-      await prisma.fcmToken.deleteMany({ where: { userId: targetId } });
-      await prisma.userLink.deleteMany({ where: { OR: [{ sourceId: targetId }, { targetId: targetId }, ...(userEmail ? [{ sourceId: userEmail }, { targetId: userEmail }] : [])] } });
-      await prisma.linkRequest.deleteMany({ where: { OR: [{ senderId: targetId }, { receiverId: targetId }, ...(userEmail ? [{ senderId: userEmail }, { receiverId: userEmail }] : [])] } });
-      await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } });
-      await prisma.payment.deleteMany({ where: { userId: targetId } });
-      await prisma.device.deleteMany({ where: { userId: targetId } });
+      try { await prisma.secondaryNumber.deleteMany({ where: { device: { userId: targetId } } }); } catch (_) {}
+      try { await prisma.fcmToken.deleteMany({ where: { userId: targetId } }); } catch (_) {}
+      try {
+        await prisma.userLink.deleteMany({
+          where: {
+            OR: [
+              { sourceId: targetId },
+              { targetId: targetId },
+              ...(userEmail ? [{ sourceId: userEmail }, { targetId: userEmail }] : [])
+            ]
+          }
+        });
+      } catch (_) {}
+      try {
+        await prisma.linkRequest.deleteMany({
+          where: {
+            OR: [
+              { senderId: targetId },
+              { receiverId: targetId },
+              ...(userEmail ? [{ senderId: userEmail }, { receiverId: userEmail }] : [])
+            ]
+          }
+        });
+      } catch (_) {}
+      try { await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } }); } catch (_) {}
+      try { await prisma.payment.updateMany({ where: { userId: targetId }, data: { userId: null } }); } catch (_) {}
+      try { await prisma.device.updateMany({ where: { userId: targetId }, data: { userId: null } }); } catch (_) {}
       if (userEmail) {
-        await prisma.verificationCode.deleteMany({ where: { email: userEmail } });
+        try { await prisma.verificationCode.deleteMany({ where: { email: userEmail } }); } catch (_) {}
       }
 
       await prisma.user.delete({ where: { id: targetId } });
 
+      logger.info(`>>> [ADMIN] Usuario ${targetId} (${userEmail}) borrado físicamente de la BD.`);
       return reply.status(200).send({ message: 'Usuario eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting app user:', error);
