@@ -320,11 +320,34 @@ export class AdminController {
       } catch (_) {}
 
       try {
-        await prisma.secondaryNumber.deleteMany({ where: { device: { userId: targetId } } });
+        await prisma.secondaryNumber.deleteMany({
+          where: { device: { userId: targetId } }
+        });
       } catch (_) {}
+
       try {
-        await prisma.fcmToken.deleteMany({ where: { userId: targetId } });
+        await prisma.payment.deleteMany({
+          where: {
+            OR: [
+              { userId: targetId },
+              { device: { userId: targetId } }
+            ]
+          }
+        });
       } catch (_) {}
+
+      try {
+        await prisma.device.deleteMany({
+          where: { userId: targetId }
+        });
+      } catch (_) {}
+
+      try {
+        await prisma.fcmToken.deleteMany({
+          where: { userId: targetId }
+        });
+      } catch (_) {}
+
       try {
         await prisma.userLink.deleteMany({
           where: {
@@ -336,6 +359,7 @@ export class AdminController {
           }
         });
       } catch (_) {}
+
       try {
         await prisma.linkRequest.deleteMany({
           where: {
@@ -347,15 +371,11 @@ export class AdminController {
           }
         });
       } catch (_) {}
+
       try {
         await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } });
       } catch (_) {}
-      try {
-        await prisma.payment.deleteMany({ where: { userId: targetId } });
-      } catch (_) {}
-      try {
-        await prisma.device.deleteMany({ where: { userId: targetId } });
-      } catch (_) {}
+
       if (userEmail) {
         try {
           await prisma.verificationCode.deleteMany({ where: { email: userEmail } });
@@ -366,7 +386,7 @@ export class AdminController {
         await prisma.user.delete({ where: { id: targetId } });
       } catch (_) {}
 
-      logger.info(`>>> [ADMIN] Usuario ${targetId} (${userEmail}) eliminado físicamente y bloqueado de la BD.`);
+      logger.info(`>>> [ADMIN] Usuario ${targetId} (${userEmail}) borrado físicamente en orden estricto.`);
       return reply.status(200).send({ message: 'Usuario eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting app user:', error);
