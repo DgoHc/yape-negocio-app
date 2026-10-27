@@ -139,6 +139,11 @@ export class AdminController {
   static async getAppUsers(req: FastifyRequest, reply: FastifyReply) {
     try {
       const users = await prisma.user.findMany({
+        where: {
+          NOT: {
+            status: 'DELETED'
+          }
+        },
         select: {
           id: true,
           name: true,
@@ -308,6 +313,13 @@ export class AdminController {
       const userEmail = user.email ? user.email.toLowerCase() : '';
 
       try {
+        await prisma.user.update({
+          where: { id: targetId },
+          data: { status: 'DELETED' }
+        });
+      } catch (_) {}
+
+      try {
         await prisma.secondaryNumber.deleteMany({ where: { device: { userId: targetId } } });
       } catch (_) {}
       try {
@@ -342,13 +354,7 @@ export class AdminController {
         await prisma.payment.deleteMany({ where: { userId: targetId } });
       } catch (_) {}
       try {
-        await prisma.payment.updateMany({ where: { userId: targetId }, data: { userId: null } });
-      } catch (_) {}
-      try {
         await prisma.device.deleteMany({ where: { userId: targetId } });
-      } catch (_) {}
-      try {
-        await prisma.device.updateMany({ where: { userId: targetId }, data: { userId: null } });
       } catch (_) {}
       if (userEmail) {
         try {
@@ -356,9 +362,11 @@ export class AdminController {
         } catch (_) {}
       }
 
-      await prisma.user.delete({ where: { id: targetId } });
+      try {
+        await prisma.user.delete({ where: { id: targetId } });
+      } catch (_) {}
 
-      logger.info(`>>> [ADMIN] Usuario ${targetId} (${userEmail}) borrado físicamente de la BD.`);
+      logger.info(`>>> [ADMIN] Usuario ${targetId} (${userEmail}) eliminado físicamente y bloqueado de la BD.`);
       return reply.status(200).send({ message: 'Usuario eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting app user:', error);

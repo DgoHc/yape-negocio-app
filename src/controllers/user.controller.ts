@@ -386,6 +386,10 @@ export class UserController {
 
       let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
 
+      if (user && user.status === 'DELETED') {
+        return reply.status(403).send({ error: 'Esta cuenta ha sido eliminada por el administrador.' });
+      }
+
       if (!user) {
         logger.info(`>>> [GOOGLE] Usuario nuevo detectable. Creando registro en DB...`);
         let notificationCode = generateNotificationCode();
@@ -403,6 +407,7 @@ export class UserController {
             password: await bcrypt.hash(`GOOGLE_AUTH_${cleanGoogleId}`, 10),
             isVerified: true,
             notificationCode,
+            status: 'ACTIVE'
           }
         });
       } else {
