@@ -35,6 +35,7 @@ export default async function routes(fastify: FastifyInstance) {
   // Payment routes
   fastify.post('/payments', { preHandler: [authenticateJWT, validate(paymentSchema)] }, PaymentController.create);
   fastify.get('/payments', { preHandler: authenticateJWT }, PaymentController.getPayments);
+  fastify.delete('/payments/history', { preHandler: authenticateJWT }, PaymentController.clearHistory);
 
   // Admin routes
   fastify.post('/admin/login', { preHandler: validate(adminLoginSchema) }, AdminController.login);

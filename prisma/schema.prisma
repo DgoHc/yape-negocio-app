@@ -24,6 +24,7 @@ model User {
   lastPaymentProvider   String?
   status                String                @default("ACTIVE")
   notificationCode      String?               @unique
+  historyLastClearedAt  DateTime?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
   devices               Device[]
