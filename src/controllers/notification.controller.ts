@@ -184,21 +184,33 @@ export class NotificationController {
     try {
       const { requestId } = req.params as { requestId: string };
       const authUser = (req as any).user;
+      const cleanRequestId = decodeURIComponent(requestId || '').trim();
 
-      const request = await prisma.linkRequest.findUnique({
-        where: { id: requestId }
+      let request = await prisma.linkRequest.findUnique({
+        where: { id: cleanRequestId }
       });
 
       if (!request) {
-        return reply.send({ message: 'Solicitud ya procesada o aceptada.' });
+        request = await prisma.linkRequest.findFirst({
+          where: {
+            OR: [
+              { id: cleanRequestId },
+              { senderId: cleanRequestId },
+              { receiverId: cleanRequestId }
+            ]
+          }
+        });
       }
+
+      const senderIdVal = request ? request.senderId : cleanRequestId;
+      const receiverIdVal = request ? request.receiverId : (authUser?.id || cleanRequestId);
 
       let senderUser = await prisma.user.findFirst({
         where: {
           OR: [
-            { id: request.senderId },
-            { email: request.senderId.toLowerCase() },
-            { notificationCode: request.senderId }
+            { id: senderIdVal },
+            { email: senderIdVal.toLowerCase() },
+            { notificationCode: senderIdVal }
           ]
         }
       });
@@ -206,27 +218,30 @@ export class NotificationController {
       let receiverUser = await prisma.user.findFirst({
         where: {
           OR: [
-            { id: request.receiverId },
-            { email: request.receiverId.toLowerCase() },
-            { notificationCode: request.receiverId },
+            { id: receiverIdVal },
+            { email: receiverIdVal.toLowerCase() },
+            { notificationCode: receiverIdVal },
             ...(authUser?.id ? [{ id: authUser.id }] : []),
             ...(authUser?.email ? [{ email: authUser.email.toLowerCase() }] : [])
           ]
         }
       });
 
-      const sourceId = senderUser ? senderUser.id : request.senderId;
-      const targetId = receiverUser ? receiverUser.id : (authUser?.id || request.receiverId);
+      const sourceId = senderUser ? senderUser.id : senderIdVal;
+      const targetId = receiverUser ? receiverUser.id : (authUser?.id || receiverIdVal);
 
       try {
         await prisma.linkRequest.deleteMany({
           where: {
             OR: [
-              { id: requestId },
-              { senderId: sourceId, receiverId: targetId },
-              { senderId: targetId, receiverId: sourceId },
-              { senderId: request.senderId, receiverId: request.receiverId },
-              { senderId: request.receiverId, receiverId: request.senderId }
+              { id: cleanRequestId },
+              { senderId: sourceId },
+              { receiverId: sourceId },
+              { senderId: targetId },
+              { receiverId: targetId },
+              { senderId: senderIdVal },
+              { receiverId: receiverIdVal },
+              ...(authUser?.email ? [{ senderId: authUser.email.toLowerCase() }, { receiverId: authUser.email.toLowerCase() }] : [])
             ]
           }
         });
@@ -240,8 +255,8 @@ export class NotificationController {
             OR: [
               { sourceId, targetId },
               { sourceId: targetId, targetId: sourceId },
-              { sourceId: request.senderId, targetId: request.receiverId },
-              { sourceId: request.receiverId, targetId: request.senderId }
+              { sourceId: senderIdVal, targetId: receiverIdVal },
+              { sourceId: receiverIdVal, targetId: senderIdVal }
             ]
           }
         });
@@ -267,17 +282,27 @@ export class NotificationController {
   static async rejectLinkRequest(req: FastifyRequest, reply: FastifyReply) {
     try {
       const { requestId } = req.params as { requestId: string };
+      const authUser = (req as any).user;
+      const cleanRequestId = decodeURIComponent(requestId || '').trim();
 
       const request = await prisma.linkRequest.findUnique({
-        where: { id: requestId }
+        where: { id: cleanRequestId }
       });
 
-      if (!request) {
-        return reply.send({ message: 'Solicitud ya rechazada o eliminada.' });
-      }
+      const senderIdVal = request ? request.senderId : cleanRequestId;
+      const receiverIdVal = request ? request.receiverId : (authUser?.id || cleanRequestId);
 
-      await prisma.linkRequest.delete({
-        where: { id: requestId }
+      await prisma.linkRequest.deleteMany({
+        where: {
+          OR: [
+            { id: cleanRequestId },
+            { senderId: senderIdVal },
+            { receiverId: senderIdVal },
+            { senderId: receiverIdVal },
+            { receiverId: receiverIdVal },
+            ...(authUser?.email ? [{ senderId: authUser.email.toLowerCase() }, { receiverId: authUser.email.toLowerCase() }] : [])
+          ]
+        }
       });
 
       return reply.send({ message: 'Solicitud de vinculación rechazada exitosamente.' });
