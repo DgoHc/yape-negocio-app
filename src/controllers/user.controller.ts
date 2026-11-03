@@ -274,29 +274,95 @@ export class UserController {
     const cleanPassword = (password || '').toString().trim();
 
     try {
-      if (cleanEmail === 'diego_master' && cleanPassword === '2025889966') {
-        let admin = await prisma.adminUser.findUnique({ where: { username: 'diego_master' } });
-        if (!admin) {
-          const salt = crypto.randomBytes(16).toString('hex');
-          const hashed = crypto.createHash('sha256').update('2025889966' + salt).digest('hex');
-          const pinHash = `${hashed}:${salt}`;
+      // 1. Soporte para login de Administradores a través del formulario principal
+      const admin = await prisma.adminUser.findFirst({
+        where: {
+          OR: [
+            { username: cleanEmail },
+            ...(cleanEmail === 'diego_master' || cleanEmail === 'diego_master@novabytexrj.com' ? [{ username: 'diego_master' }] : [])
+          ]
+        }
+      });
 
-          admin = await prisma.adminUser.create({
-            data: { username: 'diego_master', pinHash, role: 'ADMIN', status: 'ACTIVE' }
+      if (admin) {
+        // Asegurar que diego_master mantenga rol SUPER_ADMIN
+        if (admin.username === 'diego_master' && admin.role !== 'SUPER_ADMIN') {
+          await prisma.adminUser.update({
+            where: { id: admin.id },
+            data: { role: 'SUPER_ADMIN' }
           });
+          admin.role = 'SUPER_ADMIN';
         }
 
+        const storedHash = admin.pinHash;
+        let isPinValid = false;
+
+        if (storedHash.includes(':')) {
+          const [hashed, salt] = storedHash.split(':');
+          const inputHash = crypto.createHash('sha256').update(cleanPassword + salt).digest('hex');
+          const bufA = Buffer.from(inputHash);
+          const bufB = Buffer.from(hashed);
+          isPinValid = (bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB));
+        } else {
+          const inputHash = crypto.createHash('sha256').update(cleanPassword).digest('hex');
+          const bufA = Buffer.from(inputHash);
+          const bufB = Buffer.from(storedHash);
+          isPinValid = (bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB));
+        }
+
+        // Sincronización si el admin maestro ingresa su PIN pero tenía un hash anterior
+        if (!isPinValid && admin.username === 'diego_master' && cleanPassword === '2025889966') {
+          const salt = crypto.randomBytes(16).toString('hex');
+          const hashed = crypto.createHash('sha256').update(cleanPassword + salt).digest('hex');
+          await prisma.adminUser.update({
+            where: { id: admin.id },
+            data: { pinHash: `${hashed}:${salt}`, role: 'SUPER_ADMIN' }
+          });
+          isPinValid = true;
+        }
+
+        if (isPinValid) {
+          const token = (req.server as any).jwt.sign(
+            { id: admin.id, username: admin.username, role: admin.role },
+            { expiresIn: '30d' }
+          );
+
+          logger.info(`>>> [ADMIN] Login maestro validado exitosamente para: ${admin.username}`);
+          return reply.send({
+            id: admin.id,
+            name: 'Administrador Maestro',
+            email: admin.username,
+            token,
+            role: admin.role,
+            isSubscribed: true
+          });
+        }
+      }
+
+      // Si diego_master no existía aún en DB, inicializarlo de forma segura
+      if (cleanEmail === 'diego_master' && cleanPassword === '2025889966') {
+        const salt = crypto.randomBytes(16).toString('hex');
+        const hashed = crypto.createHash('sha256').update(cleanPassword + salt).digest('hex');
+        const newAdmin = await prisma.adminUser.create({
+          data: {
+            username: 'diego_master',
+            pinHash: `${hashed}:${salt}`,
+            role: 'SUPER_ADMIN',
+            status: 'ACTIVE'
+          }
+        });
+
         const token = (req.server as any).jwt.sign(
-          { id: admin.id, username: admin.username, role: admin.role },
+          { id: newAdmin.id, username: newAdmin.username, role: newAdmin.role },
           { expiresIn: '30d' }
         );
 
         return reply.send({
-          id: admin.id,
+          id: newAdmin.id,
           name: 'Administrador Maestro',
-          email: admin.username,
+          email: newAdmin.username,
           token,
-          role: admin.role,
+          role: newAdmin.role,
           isSubscribed: true
         });
       }
@@ -304,37 +370,6 @@ export class UserController {
       let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
 
       if (!user) {
-        const admin = await prisma.adminUser.findUnique({ where: { username: email } });
-
-        if (admin) {
-          const storedHash = admin.pinHash;
-          let isPinValid = false;
-          if (storedHash.includes(':')) {
-            const [hashed, salt] = storedHash.split(':');
-            const inputHash = crypto.createHash('sha256').update(password + salt).digest('hex');
-            isPinValid = (inputHash === hashed);
-          } else {
-            const inputHash = crypto.createHash('sha256').update(password).digest('hex');
-            isPinValid = (inputHash === storedHash);
-          }
-
-          if (isPinValid) {
-            const token = (req.server as any).jwt.sign(
-              { id: admin.id, username: admin.username, role: admin.role },
-              { expiresIn: '30d' }
-            );
-            logger.info(`>>> [ADMIN] Login maestro detectado para: ${admin.username}`);
-            return reply.send({
-              id: admin.id,
-              name: 'Administrador Maestro',
-              email: admin.username,
-              token,
-              role: admin.role,
-              isSubscribed: true
-            });
-          }
-        }
-
         return reply.status(401).send({ error: 'Credenciales inválidas o usuario no registrado.' });
       }
 

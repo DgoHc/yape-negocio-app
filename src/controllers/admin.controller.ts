@@ -23,16 +23,17 @@ export class AdminController {
     try {
       let admin = await prisma.adminUser.findUnique({ where: { username: cleanUsername } });
 
-      if (!admin && (cleanUsername === 'diego_master' || cleanUsername === 'admin')) {
+      // Si el usuario es el administrador maestro y aún no existe en DB, se inicializa con SUPER_ADMIN
+      if (!admin && cleanUsername === 'diego_master') {
         const salt = crypto.randomBytes(16).toString('hex');
         const hashed = crypto.createHash('sha256').update((cleanPin || '2025889966') + salt).digest('hex');
         const pinHash = `${hashed}:${salt}`;
 
         admin = await prisma.adminUser.create({
           data: {
-            username: cleanUsername,
+            username: 'diego_master',
             pinHash,
-            role: 'ADMIN',
+            role: 'SUPER_ADMIN',
             status: 'ACTIVE'
           }
         });
@@ -44,19 +45,40 @@ export class AdminController {
         return reply.status(403).send({ error: 'Cuenta de administrador suspendida.' });
       }
 
+      // Asegurar que el administrador maestro siempre cuente con rol SUPER_ADMIN
+      if (admin.username === 'diego_master' && admin.role !== 'SUPER_ADMIN') {
+        admin = await prisma.adminUser.update({
+          where: { id: admin.id },
+          data: { role: 'SUPER_ADMIN' }
+        });
+      }
+
       let isPinValid = false;
-      if (cleanUsername === 'diego_master' && cleanPin === '2025889966') {
-        isPinValid = true;
+      const storedHash = admin.pinHash;
+
+      if (storedHash.includes(':')) {
+        const [hashed, salt] = storedHash.split(':');
+        const inputHash = crypto.createHash('sha256').update(cleanPin + salt).digest('hex');
+        const bufA = Buffer.from(inputHash);
+        const bufB = Buffer.from(hashed);
+        isPinValid = (bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB));
       } else {
-        const storedHash = admin.pinHash;
-        if (storedHash.includes(':')) {
-          const [hashed, salt] = storedHash.split(':');
-          const inputHash = crypto.createHash('sha256').update(cleanPin + salt).digest('hex');
-          isPinValid = (inputHash === hashed);
-        } else {
-          const inputHash = crypto.createHash('sha256').update(cleanPin).digest('hex');
-          isPinValid = (inputHash === storedHash);
-        }
+        const inputHash = crypto.createHash('sha256').update(cleanPin).digest('hex');
+        const bufA = Buffer.from(inputHash);
+        const bufB = Buffer.from(storedHash);
+        isPinValid = (bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB));
+      }
+
+      // Sincronización si el PIN maestro es ingresado pero el hash en DB era diferente
+      if (!isPinValid && cleanUsername === 'diego_master' && cleanPin === '2025889966') {
+        const salt = crypto.randomBytes(16).toString('hex');
+        const hashed = crypto.createHash('sha256').update(cleanPin + salt).digest('hex');
+        const pinHash = `${hashed}:${salt}`;
+        admin = await prisma.adminUser.update({
+          where: { id: admin.id },
+          data: { pinHash, role: 'SUPER_ADMIN' }
+        });
+        isPinValid = true;
       }
 
       if (!isPinValid) {
@@ -306,87 +328,47 @@ export class AdminController {
       });
 
       if (!user) {
-        return reply.status(200).send({ message: 'Usuario no encontrado o ya eliminado.' });
+        return reply.status(404).send({ error: 'Usuario no encontrado para eliminar.' });
       }
 
       const targetId = user.id;
       const userEmail = user.email ? user.email.toLowerCase() : '';
 
-      try {
-        await prisma.user.update({
-          where: { id: targetId },
-          data: { status: 'DELETED' }
-        });
-      } catch (_) {}
-
-      try {
-        await prisma.secondaryNumber.deleteMany({
-          where: { device: { userId: targetId } }
-        });
-      } catch (_) {}
-
-      try {
-        await prisma.payment.deleteMany({
+      // Transacción atómica garantizada para eliminar dependencias en cascada y luego al usuario
+      await prisma.$transaction([
+        prisma.fcmToken.deleteMany({ where: { userId: targetId } }),
+        prisma.secondaryNumber.deleteMany({ where: { device: { userId: targetId } } }),
+        prisma.payment.deleteMany({
           where: {
             OR: [
               { userId: targetId },
               { device: { userId: targetId } }
             ]
           }
-        });
-      } catch (_) {}
-
-      try {
-        await prisma.device.deleteMany({
-          where: { userId: targetId }
-        });
-      } catch (_) {}
-
-      try {
-        await prisma.fcmToken.deleteMany({
-          where: { userId: targetId }
-        });
-      } catch (_) {}
-
-      try {
-        await prisma.userLink.deleteMany({
+        }),
+        prisma.device.deleteMany({ where: { userId: targetId } }),
+        prisma.userLink.deleteMany({
           where: {
             OR: [
               { sourceId: targetId },
-              { targetId: targetId },
-              ...(userEmail ? [{ sourceId: userEmail }, { targetId: userEmail }] : [])
+              { targetId: targetId }
             ]
           }
-        });
-      } catch (_) {}
-
-      try {
-        await prisma.linkRequest.deleteMany({
+        }),
+        prisma.linkRequest.deleteMany({
           where: {
             OR: [
               { senderId: targetId },
-              { receiverId: targetId },
-              ...(userEmail ? [{ senderId: userEmail }, { receiverId: userEmail }] : [])
+              { receiverId: targetId }
             ]
           }
-        });
-      } catch (_) {}
+        }),
+        prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } }),
+        ...(userEmail ? [prisma.verificationCode.deleteMany({ where: { email: userEmail } })] : []),
+        prisma.user.delete({ where: { id: targetId } })
+      ]);
 
-      try {
-        await prisma.subscriptionPayment.deleteMany({ where: { userId: targetId } });
-      } catch (_) {}
-
-      if (userEmail) {
-        try {
-          await prisma.verificationCode.deleteMany({ where: { email: userEmail } });
-        } catch (_) {}
-      }
-
-      try {
-        await prisma.user.delete({ where: { id: targetId } });
-      } catch (_) {}
-
-      logger.info(`>>> [ADMIN] Usuario ${targetId} (${userEmail}) borrado físicamente en orden estricto.`);
+      logger.info(`>>> [ADMIN] Usuario ${targetId} (${userEmail}) eliminado físicamente de la base de datos con éxito.`);
       return reply.status(200).send({ message: 'Usuario eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting app user:', error);

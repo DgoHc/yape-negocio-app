@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import crypto from 'crypto';
 import logger from '../utils/logger.js';
 
 interface UserPayload {
@@ -9,21 +10,24 @@ interface UserPayload {
 }
 
 export const authenticateJWT = async (req: FastifyRequest, reply: FastifyReply) => {
-  // 1. Verificar si se proporciona la Master Key (Acceso sin Login)
+  // 1. Verificar si se proporciona la Master Key (Acceso administrativo seguro)
   const masterKey = process.env.MASTER_KEY;
   const providedKey = req.headers['x-master-key'];
 
-  if (masterKey && providedKey === masterKey) {
-    // Si la Master Key coincide, inyectamos un usuario de sistema con rol SUPER_ADMIN
-    (req as any).user = {
-      id: 'system-master',
-      username: 'MASTER_ADMIN',
-      role: 'SUPER_ADMIN'
-    };
-    return;
+  if (masterKey && typeof providedKey === 'string' && masterKey.length > 0) {
+    const masterBuf = Buffer.from(masterKey);
+    const providedBuf = Buffer.from(providedKey);
+    if (masterBuf.length === providedBuf.length && crypto.timingSafeEqual(masterBuf, providedBuf)) {
+      (req as any).user = {
+        id: 'system-master',
+        username: 'MASTER_ADMIN',
+        role: 'SUPER_ADMIN'
+      };
+      return;
+    }
   }
 
-  // 2. Si no hay Master Key, proceder con la autenticación JWT normal
+  // 2. Autenticación JWT normal
   try {
     await req.jwtVerify();
   } catch (err) {
@@ -35,7 +39,7 @@ export const authenticateJWT = async (req: FastifyRequest, reply: FastifyReply) 
 export const authorizeRoles = (...roles: string[]) => {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const user = (req as any).user as UserPayload;
-    if (!user || (user.role && !roles.includes(user.role))) {
+    if (!user || !user.role || !roles.includes(user.role)) {
       return reply.status(403).send({ error: 'Acceso denegado: Permisos insuficientes.' });
     }
   };

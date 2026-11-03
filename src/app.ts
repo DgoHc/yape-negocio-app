@@ -13,6 +13,21 @@ const app: FastifyInstance = Fastify({
   logger: false, // Usamos nuestro propio logger (Winston)
 });
 
+// Soporte para cuerpos JSON vacíos (evita error FST_ERR_CTP_EMPTY_JSON_BODY en POST/DELETE sin cuerpo)
+app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+  const text = typeof body === 'string' ? body : body?.toString('utf-8') ?? '';
+  if (!text || text.trim() === '') {
+    return done(null, {});
+  }
+  try {
+    const json = JSON.parse(text);
+    done(null, json);
+  } catch (err: any) {
+    err.statusCode = 400;
+    done(err, undefined);
+  }
+});
+
 // 1. Registro de Seguridad y CORS
 await app.register(helmet, {
   contentSecurityPolicy: false,

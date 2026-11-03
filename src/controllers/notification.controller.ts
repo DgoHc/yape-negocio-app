@@ -186,96 +186,49 @@ export class NotificationController {
       const authUser = (req as any).user;
       const cleanRequestId = decodeURIComponent(requestId || '').trim();
 
-      let request = await prisma.linkRequest.findUnique({
-        where: { id: cleanRequestId }
+      const request = await prisma.linkRequest.findFirst({
+        where: {
+          OR: [
+            { id: cleanRequestId },
+            { senderId: cleanRequestId, receiverId: authUser.id },
+            { receiverId: cleanRequestId, senderId: authUser.id }
+          ]
+        }
       });
 
       if (!request) {
-        request = await prisma.linkRequest.findFirst({
-          where: {
-            OR: [
-              { id: cleanRequestId },
-              { senderId: cleanRequestId },
-              { receiverId: cleanRequestId }
-            ]
-          }
-        });
+        return reply.status(404).send({ error: 'Solicitud de vinculación no encontrada.' });
       }
 
-      const senderIdVal = request ? request.senderId : cleanRequestId;
-      const receiverIdVal = request ? request.receiverId : (authUser?.id || cleanRequestId);
+      const sourceId = request.senderId;
+      const targetId = request.receiverId;
 
-      let senderUser = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { id: senderIdVal },
-            { email: senderIdVal.toLowerCase() },
-            { notificationCode: senderIdVal }
-          ]
-        }
-      });
-
-      let receiverUser = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { id: receiverIdVal },
-            { email: receiverIdVal.toLowerCase() },
-            { notificationCode: receiverIdVal },
-            ...(authUser?.id ? [{ id: authUser.id }] : []),
-            ...(authUser?.email ? [{ email: authUser.email.toLowerCase() }] : [])
-          ]
-        }
-      });
-
-      const sourceId = senderUser ? senderUser.id : senderIdVal;
-      const targetId = receiverUser ? receiverUser.id : (authUser?.id || receiverIdVal);
-
-      try {
-        await prisma.linkRequest.deleteMany({
-          where: {
-            OR: [
-              { id: cleanRequestId },
-              { senderId: sourceId },
-              { receiverId: sourceId },
-              { senderId: targetId },
-              { receiverId: targetId },
-              { senderId: senderIdVal },
-              { receiverId: receiverIdVal },
-              ...(authUser?.email ? [{ senderId: authUser.email.toLowerCase() }, { receiverId: authUser.email.toLowerCase() }] : [])
-            ]
-          }
-        });
-      } catch (err) {
-        logger.error('Error deleting linkRequest:', err);
-      }
-
-      try {
-        await prisma.userLink.deleteMany({
+      await prisma.$transaction([
+        prisma.linkRequest.delete({
+          where: { id: request.id }
+        }),
+        prisma.userLink.deleteMany({
           where: {
             OR: [
               { sourceId, targetId },
-              { sourceId: targetId, targetId: sourceId },
-              { sourceId: senderIdVal, targetId: receiverIdVal },
-              { sourceId: receiverIdVal, targetId: senderIdVal }
+              { sourceId: targetId, targetId: sourceId }
             ]
           }
-        });
-
-        await prisma.userLink.create({
+        }),
+        prisma.userLink.create({
           data: {
             sourceId,
             targetId,
-            status: 'active'
+            status: 'ACTIVE'
           }
-        });
-      } catch (err) {
-        logger.error('Error creating UserLink:', err);
-      }
+        })
+      ]);
 
-      return reply.send({ message: 'Solicitud de vinculación aceptada exitosamente.' });
+      logger.info(`>>> [VINCULACIÓN] Solicitud ${request.id} aceptada. Vínculo creado entre ${sourceId} y ${targetId}`);
+      return reply.status(200).send({ message: 'Solicitud de vinculación aceptada exitosamente.' });
     } catch (error) {
       logger.error('Error accepting link request:', error);
-      return reply.send({ message: 'Solicitud de vinculación procesada.' });
+      return reply.status(500).send({ error: 'No se pudo aceptar la solicitud de vinculación.' });
     }
   }
 
@@ -285,30 +238,29 @@ export class NotificationController {
       const authUser = (req as any).user;
       const cleanRequestId = decodeURIComponent(requestId || '').trim();
 
-      const request = await prisma.linkRequest.findUnique({
-        where: { id: cleanRequestId }
-      });
-
-      const senderIdVal = request ? request.senderId : cleanRequestId;
-      const receiverIdVal = request ? request.receiverId : (authUser?.id || cleanRequestId);
-
-      await prisma.linkRequest.deleteMany({
+      const request = await prisma.linkRequest.findFirst({
         where: {
           OR: [
             { id: cleanRequestId },
-            { senderId: senderIdVal },
-            { receiverId: senderIdVal },
-            { senderId: receiverIdVal },
-            { receiverId: receiverIdVal },
-            ...(authUser?.email ? [{ senderId: authUser.email.toLowerCase() }, { receiverId: authUser.email.toLowerCase() }] : [])
+            { senderId: cleanRequestId, receiverId: authUser.id },
+            { receiverId: cleanRequestId, senderId: authUser.id }
           ]
         }
       });
 
-      return reply.send({ message: 'Solicitud de vinculación rechazada exitosamente.' });
+      if (!request) {
+        return reply.status(404).send({ error: 'Solicitud no encontrada para rechazar.' });
+      }
+
+      await prisma.linkRequest.delete({
+        where: { id: request.id }
+      });
+
+      logger.info(`>>> [VINCULACIÓN] Solicitud ${request.id} rechazada y eliminada.`);
+      return reply.status(200).send({ message: 'Solicitud de vinculación rechazada exitosamente.' });
     } catch (error) {
       logger.error('Error rejecting link request:', error);
-      return reply.send({ message: 'Solicitud procesada.' });
+      return reply.status(500).send({ error: 'No se pudo rechazar la solicitud de vinculación.' });
     }
   }
 
@@ -395,9 +347,16 @@ export class NotificationController {
     try {
       const { linkId } = req.params as { linkId: string };
       const userId = (req as any).user.id;
+      const cleanLinkId = decodeURIComponent(linkId || '').trim();
 
-      const link = await prisma.userLink.findUnique({
-        where: { id: linkId }
+      const link = await prisma.userLink.findFirst({
+        where: {
+          OR: [
+            { id: cleanLinkId },
+            { sourceId: cleanLinkId, targetId: userId },
+            { targetId: cleanLinkId, sourceId: userId }
+          ]
+        }
       });
 
       if (!link) {
@@ -409,10 +368,11 @@ export class NotificationController {
       }
 
       await prisma.userLink.delete({
-        where: { id: linkId }
+        where: { id: link.id }
       });
 
-      return reply.status(204).send();
+      logger.info(`>>> [VINCULACIÓN] Vínculo ${link.id} eliminado exitosamente.`);
+      return reply.status(200).send({ message: 'Vínculo eliminado exitosamente.' });
     } catch (error) {
       logger.error('Error deleting link:', error);
       return reply.status(500).send({ error: 'Error al intentar eliminar el vínculo.' });

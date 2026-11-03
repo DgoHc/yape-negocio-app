@@ -145,11 +145,29 @@ export class DeviceController {
   static async deleteDevice(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
     try {
-      await prisma.device.delete({ where: { id } });
-      return reply.status(204).send();
+      const device = await prisma.device.findFirst({
+        where: {
+          OR: [
+            { id },
+            { uuid: id }
+          ]
+        }
+      });
+
+      if (!device) {
+        return reply.status(404).send({ error: 'Dispositivo no encontrado para eliminar.' });
+      }
+
+      await prisma.$transaction([
+        prisma.secondaryNumber.deleteMany({ where: { deviceId: device.id } }),
+        prisma.payment.deleteMany({ where: { deviceId: device.id } }),
+        prisma.device.delete({ where: { id: device.id } }),
+      ]);
+
+      return reply.status(200).send({ message: 'Dispositivo eliminado correctamente.' });
     } catch (error) {
       logger.error('Error deleting device:', error);
-      return reply.status(404).send({ error: 'Dispositivo no encontrado para eliminar.' });
+      return reply.status(500).send({ error: 'Error al eliminar el dispositivo de la base de datos.' });
     }
   }
 }

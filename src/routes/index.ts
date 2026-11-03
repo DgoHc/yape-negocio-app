@@ -47,7 +47,7 @@ export default async function routes(fastify: FastifyInstance) {
   fastify.get('/admin/devices', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR')] }, DeviceController.getDevices);
   fastify.post('/admin/devices', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN'), validate(registerDeviceSchema)] }, DeviceController.adminRegisterDevice);
   fastify.patch('/admin/devices/:id', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN'), validate(updateDeviceSchema)] }, DeviceController.updateDevice);
-  fastify.delete('/admin/devices/:id', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN')] }, DeviceController.deleteDevice);
+  fastify.delete('/admin/devices/:id', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, DeviceController.deleteDevice);
 
   // User Management
   fastify.get('/admin/users', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN')] }, AdminController.getUsers);
