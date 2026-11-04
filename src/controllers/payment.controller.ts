@@ -6,6 +6,8 @@ import logger from '../utils/logger.js';
 export class PaymentController {
   static async create(req: FastifyRequest, reply: FastifyReply) {
     const { externalId, deviceId, amount, currency, senderName, rawText, operationNumber } = req.body as any;
+    const authUserId = (req as any).user?.id;
+
     try {
       let device = await prisma.device.findUnique({ where: { id: deviceId } });
       if (!device) {
@@ -16,6 +18,16 @@ export class PaymentController {
         return reply.status(404).send({ error: 'Dispositivo no registrado en el sistema.' });
       }
 
+      if (!device.userId && authUserId) {
+        await prisma.device.update({
+          where: { id: device.id },
+          data: { userId: authUserId }
+        });
+        device.userId = authUserId;
+      }
+
+      const targetUserId = device.userId || authUserId || null;
+
       const payment = await prisma.payment.create({
         data: {
           externalId,
@@ -25,7 +37,7 @@ export class PaymentController {
           rawText,
           deviceId: device.id,
           operationNumber,
-          userId: device.userId
+          userId: targetUserId
         }
       });
 
@@ -42,14 +54,31 @@ export class PaymentController {
   }
 
   static async getPayments(req: FastifyRequest, reply: FastifyReply) {
-    const { deviceId } = req.query as { deviceId?: string };
+    const { deviceId } = (req.query as { deviceId?: string }) || {};
     const userId = (req as any).user?.id;
 
     try {
+      const userDevices = userId
+        ? await prisma.device.findMany({ where: { userId }, select: { id: true } })
+        : [];
+      const deviceIds: string[] = userDevices.map(d => d.id);
+
+      if (deviceId) {
+        const specificDevice = await prisma.device.findFirst({
+          where: { OR: [{ id: deviceId }, { uuid: deviceId }] },
+          select: { id: true }
+        });
+        if (specificDevice && !deviceIds.includes(specificDevice.id)) {
+          deviceIds.push(specificDevice.id);
+        }
+      }
+
       const payments = await prisma.payment.findMany({
         where: {
-          userId,
-          deviceId: deviceId || undefined,
+          OR: [
+            ...(userId ? [{ userId }] : []),
+            ...(deviceIds.length > 0 ? [{ deviceId: { in: deviceIds } }] : [])
+          ]
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -62,16 +91,46 @@ export class PaymentController {
 
   static async clearHistory(req: FastifyRequest, reply: FastifyReply) {
     const userId = (req as any).user?.id;
+    const { deviceId } = (req.query as { deviceId?: string }) || (req.body as any) || {};
+
     try {
-      if (userId) {
-        await prisma.payment.deleteMany({
-          where: { userId }
+      const userDevices = userId
+        ? await prisma.device.findMany({ where: { userId }, select: { id: true } })
+        : [];
+      const deviceIds: string[] = userDevices.map(d => d.id);
+
+      if (deviceId) {
+        const specificDevice = await prisma.device.findFirst({
+          where: { OR: [{ id: deviceId }, { uuid: deviceId }] },
+          select: { id: true }
         });
+        if (specificDevice && !deviceIds.includes(specificDevice.id)) {
+          deviceIds.push(specificDevice.id);
+        }
       }
-      return reply.send({ message: 'Historial de pagos limpiado en el servidor exitosamente.' });
+
+      let deletedCount = 0;
+      if (userId || deviceIds.length > 0) {
+        const result = await prisma.payment.deleteMany({
+          where: {
+            OR: [
+              ...(userId ? [{ userId }] : []),
+              ...(deviceIds.length > 0 ? [{ deviceId: { in: deviceIds } }] : [])
+            ]
+          }
+        });
+        deletedCount = result.count;
+      }
+
+      logger.info(`>>> [HISTORIAL] Se eliminaron ${deletedCount} pagos de PostgreSQL para userId ${userId} y dispositivos: ${JSON.stringify(deviceIds)}`);
+
+      return reply.send({
+        message: 'Historial de pagos limpiado en el servidor exitosamente.',
+        deletedCount
+      });
     } catch (error) {
       logger.error('Error clearing payment history on server:', error);
-      return reply.send({ message: 'Historial limpiado.' });
+      return reply.status(500).send({ error: 'No se pudo limpiar el historial en el servidor.' });
     }
   }
 }
