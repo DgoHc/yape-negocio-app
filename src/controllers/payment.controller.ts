@@ -73,16 +73,73 @@ export class PaymentController {
         }
       }
 
+      // Obtener usuarios socios vinculados activos (UserLink)
+      const linkedUsersMap = new Map<string, { name: string; alias?: string | null }>();
+      const linkedUserIds: string[] = [];
+
+      if (userId) {
+        const activeLinks = await prisma.userLink.findMany({
+          where: {
+            OR: [
+              { sourceId: userId },
+              { targetId: userId }
+            ],
+            status: 'ACTIVE'
+          },
+          include: {
+            source: { select: { id: true, name: true, phone: true } },
+            target: { select: { id: true, name: true, phone: true } }
+          }
+        });
+
+        for (const link of activeLinks) {
+          const isSource = link.sourceId === userId;
+          const partner = isSource ? link.target : link.source;
+          if (partner && partner.id !== userId) {
+            linkedUserIds.push(partner.id);
+            linkedUsersMap.set(partner.id, {
+              name: partner.name,
+              alias: link.alias || partner.name
+            });
+          }
+        }
+      }
+
       const payments = await prisma.payment.findMany({
         where: {
           OR: [
             ...(userId ? [{ userId }] : []),
-            ...(deviceIds.length > 0 ? [{ deviceId: { in: deviceIds } }] : [])
+            ...(deviceIds.length > 0 ? [{ deviceId: { in: deviceIds } }] : []),
+            ...(linkedUserIds.length > 0 ? [{ userId: { in: linkedUserIds } }] : [])
           ]
+        },
+        include: {
+          user: { select: { id: true, name: true } },
+          device: { select: { id: true, alias: true, deviceName: true } }
         },
         orderBy: { createdAt: 'desc' },
       });
-      return reply.send(payments);
+
+      const formattedPayments = payments.map(p => {
+        const isFromPartner = !!(p.userId && p.userId !== userId && linkedUserIds.includes(p.userId));
+        const partnerInfo = isFromPartner && p.userId ? linkedUsersMap.get(p.userId) : null;
+
+        return {
+          id: p.id,
+          externalId: p.externalId,
+          amount: p.amount,
+          currency: p.currency,
+          senderName: p.senderName,
+          rawText: p.rawText,
+          operationNumber: p.operationNumber,
+          deviceId: p.deviceId,
+          createdAt: p.createdAt,
+          isLinked: isFromPartner,
+          linkedUserName: isFromPartner ? (partnerInfo?.alias || partnerInfo?.name || p.device?.alias || 'Socio Vinculado') : null
+        };
+      });
+
+      return reply.send(formattedPayments);
     } catch (error) {
       logger.error('Error getting payments:', error);
       return reply.send([]);
