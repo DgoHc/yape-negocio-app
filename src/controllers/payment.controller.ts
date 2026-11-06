@@ -18,7 +18,8 @@ export class PaymentController {
         return reply.status(404).send({ error: 'Dispositivo no registrado en el sistema.' });
       }
 
-      if (!device.userId && authUserId) {
+      // Reasignar dispositivo al usuario autenticado si es necesario
+      if (authUserId && device.userId !== authUserId) {
         await prisma.device.update({
           where: { id: device.id },
           data: { userId: authUserId }
@@ -26,7 +27,8 @@ export class PaymentController {
         device.userId = authUserId;
       }
 
-      const targetUserId = device.userId || authUserId || null;
+      // El usuario autenticado SIEMPRE tiene prioridad de propiedad sobre el dispositivo
+      const targetUserId = authUserId || device.userId || null;
 
       const payment = await prisma.payment.create({
         data: {
@@ -44,6 +46,51 @@ export class PaymentController {
       SocketService.emitPaymentReceived(device.id, payment);
       if (deviceId !== device.id) {
         SocketService.emitPaymentReceived(deviceId, payment);
+      }
+
+      // Emitir en tiempo real a los socios vinculados activos (status: ACTIVE)
+      if (targetUserId) {
+        try {
+          const activeLinks = await prisma.userLink.findMany({
+            where: {
+              OR: [
+                { sourceId: targetUserId },
+                { targetId: targetUserId }
+              ],
+              status: 'ACTIVE'
+            },
+            include: {
+              source: { select: { id: true, name: true } },
+              target: { select: { id: true, name: true } }
+            }
+          });
+
+          for (const link of activeLinks) {
+            const isSource = link.sourceId === targetUserId;
+            const partnerId = isSource ? link.targetId : link.sourceId;
+            const sourceUser = isSource ? link.source : link.target;
+
+            const partnerDevices = await prisma.device.findMany({
+              where: { userId: partnerId },
+              select: { id: true, uuid: true }
+            });
+
+            const partnerPaymentPayload = {
+              ...payment,
+              isLinked: true,
+              linkedUserName: link.alias || sourceUser.name || 'Socio Vinculado'
+            };
+
+            for (const pDev of partnerDevices) {
+              SocketService.emitPaymentReceived(pDev.id, partnerPaymentPayload);
+              if (pDev.uuid) {
+                SocketService.emitPaymentReceived(pDev.uuid, partnerPaymentPayload);
+              }
+            }
+          }
+        } catch (linkError) {
+          logger.error('Error emitiendo pago a socios vinculados:', linkError);
+        }
       }
 
       return reply.status(201).send(payment);
@@ -105,14 +152,27 @@ export class PaymentController {
         }
       }
 
-      const payments = await prisma.payment.findMany({
-        where: {
+      // Filtro estricto para evitar filtración de pagos entre usuarios no vinculados:
+      let whereClause: any;
+      if (userId) {
+        whereClause = {
           OR: [
-            ...(userId ? [{ userId }] : []),
-            ...(deviceIds.length > 0 ? [{ deviceId: { in: deviceIds } }] : []),
-            ...(linkedUserIds.length > 0 ? [{ userId: { in: linkedUserIds } }] : [])
+            { userId },
+            ...(linkedUserIds.length > 0 ? [{ userId: { in: linkedUserIds } }] : []),
+            ...(deviceIds.length > 0 ? [{ userId: null, deviceId: { in: deviceIds } }] : [])
           ]
-        },
+        };
+      } else if (deviceIds.length > 0) {
+        whereClause = {
+          userId: null,
+          deviceId: { in: deviceIds }
+        };
+      } else {
+        return reply.send([]);
+      }
+
+      const payments = await prisma.payment.findMany({
+        where: whereClause,
         include: {
           user: { select: { id: true, name: true } },
           device: { select: { id: true, alias: true, deviceName: true } }
@@ -167,19 +227,27 @@ export class PaymentController {
       }
 
       let deletedCount = 0;
-      if (userId || deviceIds.length > 0) {
+      if (userId) {
         const result = await prisma.payment.deleteMany({
           where: {
             OR: [
-              ...(userId ? [{ userId }] : []),
-              ...(deviceIds.length > 0 ? [{ deviceId: { in: deviceIds } }] : [])
+              { userId },
+              ...(deviceIds.length > 0 ? [{ userId: null, deviceId: { in: deviceIds } }] : [])
             ]
+          }
+        });
+        deletedCount = result.count;
+      } else if (deviceIds.length > 0) {
+        const result = await prisma.payment.deleteMany({
+          where: {
+            userId: null,
+            deviceId: { in: deviceIds }
           }
         });
         deletedCount = result.count;
       }
 
-      logger.info(`>>> [HISTORIAL] Se eliminaron ${deletedCount} pagos de PostgreSQL para userId ${userId} y dispositivos: ${JSON.stringify(deviceIds)}`);
+      logger.info(`>>> [HISTORIAL] Se eliminaron ${deletedCount} pagos de PostgreSQL para userId ${userId}`);
 
       return reply.send({
         message: 'Historial de pagos limpiado en el servidor exitosamente.',
