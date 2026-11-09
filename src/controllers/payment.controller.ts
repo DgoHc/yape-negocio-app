@@ -15,7 +15,17 @@ export class PaymentController {
       }
 
       if (!device) {
-        return reply.status(404).send({ error: 'Dispositivo no registrado en el sistema.' });
+        // Auto-registrar dispositivo para nunca perder un pago
+        device = await prisma.device.create({
+          data: {
+            uuid: deviceId,
+            userId: authUserId || undefined,
+            lastConnectedAt: new Date(),
+            status: 'ACTIVE',
+            isApproved: true,
+          }
+        });
+        logger.info(`Dispositivo ${deviceId} auto-registrado en create payment para usuario ${authUserId}`);
       }
 
       // Reasignar dispositivo al usuario autenticado si es necesario
@@ -111,10 +121,25 @@ export class PaymentController {
       const deviceIds: string[] = userDevices.map(d => d.id);
 
       if (deviceId) {
-        const specificDevice = await prisma.device.findFirst({
+        let specificDevice = await prisma.device.findFirst({
           where: { OR: [{ id: deviceId }, { uuid: deviceId }] },
-          select: { id: true }
+          select: { id: true, userId: true }
         });
+
+        // Si el dispositivo no existe aún y el usuario está autenticado, lo auto-creamos
+        if (!specificDevice && userId) {
+          const newDev = await prisma.device.create({
+            data: {
+              uuid: deviceId,
+              userId: userId,
+              lastConnectedAt: new Date(),
+              status: 'ACTIVE',
+              isApproved: true,
+            }
+          });
+          specificDevice = { id: newDev.id, userId: newDev.userId };
+        }
+
         if (specificDevice && !deviceIds.includes(specificDevice.id)) {
           deviceIds.push(specificDevice.id);
         }
@@ -217,10 +242,25 @@ export class PaymentController {
       const deviceIds: string[] = userDevices.map(d => d.id);
 
       if (deviceId) {
-        const specificDevice = await prisma.device.findFirst({
+        let specificDevice = await prisma.device.findFirst({
           where: { OR: [{ id: deviceId }, { uuid: deviceId }] },
-          select: { id: true }
+          select: { id: true, userId: true }
         });
+
+        // Si el dispositivo no existe aún y el usuario está autenticado, lo auto-creamos
+        if (!specificDevice && userId) {
+          const newDev = await prisma.device.create({
+            data: {
+              uuid: deviceId,
+              userId: userId,
+              lastConnectedAt: new Date(),
+              status: 'ACTIVE',
+              isApproved: true,
+            }
+          });
+          specificDevice = { id: newDev.id, userId: newDev.userId };
+        }
+
         if (specificDevice && !deviceIds.includes(specificDevice.id)) {
           deviceIds.push(specificDevice.id);
         }
