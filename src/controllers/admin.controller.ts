@@ -173,6 +173,7 @@ export class AdminController {
           phone: true,
           businessType: true,
           isSubscribed: true,
+          subscriptionPlan: true,
           trialEndDate: true,
           subscriptionEndDate: true,
           createdAt: true
@@ -188,7 +189,11 @@ export class AdminController {
 
   static async updateAppUserSubscription(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
-    const { isSubscribed, days } = req.body as { isSubscribed: boolean; days?: number };
+    const { isSubscribed, days, subscriptionPlan } = req.body as {
+      isSubscribed: boolean;
+      days?: number;
+      subscriptionPlan?: string;
+    };
     try {
       let user = await prisma.user.findUnique({ where: { id } });
       if (!user) {
@@ -214,6 +219,7 @@ export class AdminController {
         where: { id: targetId },
         data: {
           isSubscribed,
+          subscriptionPlan: subscriptionPlan || (isSubscribed ? (user.subscriptionPlan || 'premium') : undefined),
           subscriptionStartDate,
           subscriptionEndDate,
           status: isSubscribed ? 'ACTIVE' : 'SUSPENDED',

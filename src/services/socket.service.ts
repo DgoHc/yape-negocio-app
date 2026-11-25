@@ -21,6 +21,13 @@ export class SocketService {
         logger.info(`Socket ${socket.id} joined room: ${deviceId}`);
       });
 
+      socket.on('join_user', (userId: string) => {
+        if (userId) {
+          socket.join(`user:${userId}`);
+          logger.info(`Socket ${socket.id} joined user room: user:${userId}`);
+        }
+      });
+
       socket.on('disconnect', () => {
         logger.info(`Client disconnected: ${socket.id}`);
       });
@@ -34,5 +41,11 @@ export class SocketService {
     }
     this.io.to(deviceId).emit('payment:received', payment);
     logger.info(`Emitted payment:received to room: ${deviceId}`);
+  }
+
+  static emitSubscriptionActivated(userId: string, payload: Record<string, unknown>) {
+    if (!this.io || !userId) return;
+    this.io.to(`user:${userId}`).emit('subscription:activated', payload);
+    logger.info(`Emitted subscription:activated to user room: user:${userId}`);
   }
 }

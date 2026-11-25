@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import prisma from '../config/database.js';
 import { SocketService } from '../services/socket.service.js';
+import { SubscriptionValidatorService } from '../services/subscription-validator.service.js';
 import logger from '../utils/logger.js';
 
 export class PaymentController {
@@ -51,6 +52,16 @@ export class PaymentController {
           operationNumber,
           userId: targetUserId
         }
+      });
+
+      // Intentar validar órdenes de suscripción pendientes si esta notificación viene del Celular Master
+      await SubscriptionValidatorService.tryMatchIncomingPayment({
+        id: payment.id,
+        amount: payment.amount,
+        senderName: payment.senderName,
+        deviceId: payment.deviceId,
+        userId: payment.userId,
+        createdAt: payment.createdAt,
       });
 
       SocketService.emitPaymentReceived(device.id, payment);

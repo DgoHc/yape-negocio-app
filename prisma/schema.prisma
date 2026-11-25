@@ -18,6 +18,7 @@ model User {
   trialStartDate        DateTime?
   trialEndDate          DateTime?
   isSubscribed          Boolean               @default(false)
+  subscriptionPlan      String?               @default("basic")
   subscriptionStartDate DateTime?
   subscriptionEndDate   DateTime?
   lastPaymentId         String?
@@ -74,16 +75,47 @@ model Payment {
 }
 
 model SubscriptionPayment {
-  id                String   @id @default(uuid())
+  id                String    @id @default(uuid())
   userId            String
-  user              User     @relation(fields: [userId], references: [id])
+  user              User      @relation(fields: [userId], references: [id])
+  plan              String    @default("basic")
+  days              Int       @default(30)
   amount            Float
-  currency          String   @default("PEN")
+  currency          String    @default("PEN")
   provider          String
-  providerPaymentId String?
-  status            String   @default("PENDING")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  payerName         String?
+  providerPaymentId String?   @unique
+  matchedSenderName String?
+  status            String    @default("PENDING")
+  expiresAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([userId, status])
+}
+
+model PaymentValidatorConfig {
+  id             String   @id @default("master")
+  masterUserId   String?
+  masterDeviceId String?
+  yapeEnabled    Boolean  @default(true)
+  yapeQrPayload  String?
+  yapePhone      String?
+  yapeHolderName String?
+  plinEnabled    Boolean  @default(true)
+  plinQrPayload  String?
+  plinPhone      String?
+  plinHolderName String?
+  bankEnabled    Boolean  @default(true)
+  bankName       String?
+  bankAccount    String?
+  bankCci        String?
+  bankHolderName String?
+  basicPrice     Float    @default(5.0)
+  premiumPrice   Float    @default(7.0)
+  planDays       Int      @default(30)
+  updatedAt      DateTime @updatedAt
 }
 
 model AdminUser {

@@ -4,3 +4,4 @@ export * from './admin.controller.js';
 export * from './user.controller.js';
 export * from './notification.controller.js';
 export * from './payment-gateway.controller.js';
+export * from './subscription.controller.js';

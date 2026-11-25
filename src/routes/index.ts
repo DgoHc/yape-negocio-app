@@ -5,7 +5,8 @@ import {
   AdminController,
   UserController,
   PaymentGatewayController,
-  NotificationController
+  NotificationController,
+  SubscriptionController
 } from '../controllers/index.js';
 import { validate } from '../middlewares/validate.js';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth.js';
@@ -23,7 +24,8 @@ import {
   resetPasswordSchema,
   googleLoginSchema,
   createAppUserSchema,
-  updateAppUserSchema
+  updateAppUserSchema,
+  createSubscriptionOrderSchema
 } from '../dtos/schemas.js';
 
 export default async function routes(fastify: FastifyInstance) {
@@ -74,10 +76,22 @@ export default async function routes(fastify: FastifyInstance) {
   fastify.get('/users/profile', { preHandler: authenticateJWT }, UserController.getProfile);
   fastify.patch('/users/profile', { preHandler: authenticateJWT }, UserController.updateProfile);
 
-  // Payment Gateway routes
+  // Payment Gateway routes (legacy)
   fastify.post('/payments/culqi', { preHandler: authenticateJWT }, PaymentGatewayController.createCulqiPayment);
   fastify.post('/payments/mercadopago', { preHandler: authenticateJWT }, PaymentGatewayController.createMercadoPagoPayment);
   fastify.post('/payments/yape', { preHandler: authenticateJWT }, PaymentGatewayController.createYapePayment);
+
+  // Subscription Validator routes (Yape / Plin / Transferencia Master)
+  fastify.get('/subscriptions/config', { preHandler: authenticateJWT }, SubscriptionController.getPlansAndConfig);
+  fastify.post('/subscriptions/orders', { preHandler: [authenticateJWT, validate(createSubscriptionOrderSchema)] }, SubscriptionController.createOrder);
+  fastify.get('/subscriptions/orders/:id/status', { preHandler: authenticateJWT }, SubscriptionController.getOrderStatus);
+
+  // Admin Subscription & Master Phone routes
+  fastify.get('/admin/payment-validator-config', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, SubscriptionController.getAdminConfig);
+  fastify.put('/admin/payment-validator-config', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, SubscriptionController.updateAdminConfig);
+  fastify.get('/admin/subscription-orders', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, SubscriptionController.getAdminOrders);
+  fastify.post('/admin/subscription-orders/:id/approve', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, SubscriptionController.approveAdminOrder);
+  fastify.post('/admin/subscription-orders/:id/reject', { preHandler: [authenticateJWT, authorizeRoles('SUPER_ADMIN', 'ADMIN')] }, SubscriptionController.rejectAdminOrder);
 
   // Webhooks
   fastify.post('/webhooks/culqi', PaymentGatewayController.culqiWebhook);

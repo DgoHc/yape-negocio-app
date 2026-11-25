@@ -131,3 +131,11 @@ export const updateAppUserSchema = z.object({
     days: z.number().optional(),
   }),
 });
+
+export const createSubscriptionOrderSchema = z.object({
+  body: z.object({
+    plan: z.enum(['basic', 'premium']),
+    provider: z.enum(['YAPE', 'PLIN', 'TRANSFER']).default('YAPE'),
+    payerName: z.string().min(4),
+  }),
+});

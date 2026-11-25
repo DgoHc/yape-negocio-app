@@ -114,8 +114,8 @@ export class UserController {
         return reply.send({
           id: user.id, name: user.name, email: user.email, phone: user.phone,
           businessType: user.businessType, token, isVerified: true,
-          isSubscribed: user.isSubscribed, trialEndDate: user.trialEndDate,
-          subscriptionEndDate: user.subscriptionEndDate,
+          isSubscribed: user.isSubscribed, subscriptionPlan: user.subscriptionPlan,
+          trialEndDate: user.trialEndDate, subscriptionEndDate: user.subscriptionEndDate,
         });
       }
 
@@ -160,6 +160,7 @@ export class UserController {
         token,
         isVerified: true,
         isSubscribed: user.isSubscribed,
+        subscriptionPlan: user.subscriptionPlan,
         trialEndDate: user.trialEndDate,
         subscriptionEndDate: user.subscriptionEndDate,
       });
@@ -397,6 +398,7 @@ export class UserController {
         businessType: user.businessType,
         token,
         isSubscribed: user.isSubscribed,
+        subscriptionPlan: user.subscriptionPlan,
         trialEndDate: user.trialEndDate,
         subscriptionEndDate: user.subscriptionEndDate,
       });
@@ -469,6 +471,7 @@ export class UserController {
         token,
         isVerified: true,
         isSubscribed: user.isSubscribed,
+        subscriptionPlan: user.subscriptionPlan,
         trialEndDate: user.trialEndDate,
         subscriptionEndDate: user.subscriptionEndDate,
       });
@@ -518,7 +521,7 @@ export class UserController {
         where: { id: userId },
         data: {
           trialStartDate: new Date(),
-          trialEndDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+          trialEndDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
         }
       });
 
@@ -530,6 +533,7 @@ export class UserController {
         phone: user.phone,
         businessType: user.businessType,
         isSubscribed: user.isSubscribed,
+        subscriptionPlan: user.subscriptionPlan,
         trialEndDate: user.trialEndDate,
         subscriptionEndDate: user.subscriptionEndDate,
       });
@@ -551,6 +555,7 @@ export class UserController {
           businessType: true,
           notificationCode: true,
           isSubscribed: true,
+          subscriptionPlan: true,
           trialEndDate: true,
           subscriptionEndDate: true
         }
@@ -575,6 +580,7 @@ export class UserController {
             businessType: true,
             notificationCode: true,
             isSubscribed: true,
+            subscriptionPlan: true,
             trialEndDate: true,
             subscriptionEndDate: true
           }
@@ -607,6 +613,7 @@ export class UserController {
           businessType: true,
           notificationCode: true,
           isSubscribed: true,
+          subscriptionPlan: true,
           trialEndDate: true,
           subscriptionEndDate: true
         }
